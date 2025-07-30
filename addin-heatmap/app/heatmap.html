@@ -1,118 +1,197 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta http-equiv="x-ua-compatible" content="ie=edge">
-  <meta name="description" content="">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Heat Map</title>
-
-  <!-- build:css styles/vendor.css -->
-  <!-- bower:css -->
-  <link rel="stylesheet" href="bower_components/leaflet/dist/leaflet.css">
-  <!-- endbower -->
-  <!-- endbuild -->
-
-  <!-- build:css styles/main.css -->
-  <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css">
-  <!-- endbuild -->
-
-  <!-- build:js scripts/vendor.js -->
-  <!-- bower:js -->
-  <script src="bower_components/leaflet/dist/leaflet.js"></script>
-  <script src="bower_components/leaflet.heat/dist/leaflet-heat.js"></script>
-  <!-- endbower -->
-  <!-- endbuild -->
-
-  <!-- build:js scripts/main.js -->
-  <script src="scripts/main.js"></script>
-  <!-- endbuild -->
+  <meta charset="UTF-8"/>
+  <title>FW Heatmap</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"/>
+  <style>
+    #map { height: 60vh; min-height: 320px; }
+    .sidebar { padding: 1em; background: #f8f9fa; border-radius: 8px; box-shadow: 0 2px 8px #ddd; }
+    .legend span { margin-right: 1em; }
+    .ev-marker { color: #00bfff; }
+    .low-battery-marker { color: #ff3333; }
+    .charging-marker { color: #33ff33;}
+    .fault-critical { color: #dc3545; }
+    .fault-warning { color: #ffc107; }
+    .fault-info { color: #0dcaf0; }
+    .leaflet-popup-content { min-width: 180px; }
+    .summary-list li { margin-bottom: 0.5em; }
+    @media (max-width: 768px) {
+      #map { height: 35vh; }
+    }
+  </style>
 </head>
-
 <body>
-  
-  <div id="heatmap" style="height: calc(100%)">
-    <div id="disclaimer">
-      <label id="disclaimerLabel">Sample add-in/tool</label>
-      <p>This tool is provided as an example and is available on an As-Is basis. You must assume all the risks and
-          costs associated with the use of the sample tool, including, without limitation, any damage to any
-          equipment, software, information or data. In addition, we are not obligated to provide any maintenance,
-          technical or other support for the sample tool. In order to improve our products, we may at any time,
-          and without warning, change the design, presentation, or functionality of the software.</p>
-    </div>
-
-    <div class="cssGrid sm-part-12">
-      <div class="lg-part-2 md-part-3 sm-part-12">
-        <div id="controls">
-
-          <h2>Heatmap</h2>
-          <p>
-            This example demonstrates how to create an add-in to visualize location or exception
-            (rule violation) history using a heat map.
-          </p>
-
-          <label for="visualizeBy">Visualize by:</label>
-          <input type="radio" id="visualizeByLocationHistory" name="visualizeBy" value="locationHistory" checked> Location History
-          <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
-
-          <label for="exceptionTypes">Rule:</label>
-          <select id="exceptionTypes" class="checkmateFormEditField" ng-mousedown="selectType($event)" disabled>
-              <option disabled="disabled">Select a rule</option>
+  <div class="container-fluid">
+    <div class="row mb-2">
+      <div class="col-md-12">
+        <h2>FW Heatmap</h2>
+        <div class="sidebar d-flex flex-wrap gap-2 align-items-center mb-2">
+          <input type="date" id="startDate"/><input type="date" id="endDate"/>
+          <select id="deviceSelect"><option>All Devices</option></select>
+          <select id="evFilter">
+            <option value="all">All</option>
+            <option value="ev">EV Only</option>
+            <option value="ice">ICE Only</option>
           </select>
-
-          <label for="vehicles">Vehicle(s):</label>
-          <select id="vehicles" class="checkmateFormEditField" multiple="true"
-            ng-mousedown="selectType($event)">
+          <select id="dataType">
+            <option value="heatmap">Heatmap</option>
+            <option value="battery">Battery Level</option>
+            <option value="charging">Charging Events</option>
+            <option value="faults">Faults</option>
+            <option value="efficiency">Route Efficiency</option>
           </select>
-
-          <label for="from">From:</label>
-          <input id="from" type="datetime-local" class="checkmateFormEditField" />
-
-          <label for="to">To:</label>
-          <input id="to" type="datetime-local" class="checkmateFormEditField" />
-          <div style="margin:1em"></div>
-          <input type="submit" value="Show Heat Map" id="showHeatMap">
-          <div id="error"></div>
-          <div id="message"></div>
-
-          <div id="loading" class="spinner" style="display:none">
-              <div></div>
-              <div></div>
-              <div></div>
-          </div>
-
-          <div>
-            <h3>Instructions</h3>
-            <ol>
-              <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
-              <li>If visualizing by exception history, select a rule for which to search for exceptions.</li>
-              <li>Select the vehicle(s) to search on.</li>
-              <li>Specify a date/time range.</li>
-              <li>Click the <i>Show Heat Map</i> button to update the map.</li>
-              <li>After applying any changes to the MyGeotab Groups Filter, refresh the page to apply the filter to the list of vehicles and repeat the above steps.</li>
-            </ol>
-            <p>
-              When selecting veicles, use CTRL+Click to select/deselect individual vehicles 
-              or SHIFT+Click to select a range of vehicles.  To select all vehicles in the
-              list, first select one and then use CTRL+A.
-            </p>
-  
-          </div>
+          <button id="refreshBtn" class="btn btn-primary btn-sm">Refresh</button>
+          <button id="exportBtn" class="btn btn-outline-secondary btn-sm">Export CSV</button>
+          <button id="exportMapBtn" class="btn btn-outline-secondary btn-sm">Export Map</button>
+        </div>
+        <div class="legend">
+          <strong>Legend:</strong>
+          <span style="background: linear-gradient(to right, #00f, #ff0, #f00); padding: 0.3em 1em; border-radius: 6px;">Heatmap Intensity</span>
+          <span style="color: #00bfff;">● EV Battery Point</span>
+          <span style="color: #ff3333;">● Low Battery Event</span>
+          <span style="color: #33ff33;">⚡ Charge Location</span>
+          <span style="color: #dc3545;">● Critical Fault</span>
+          <span style="color: #ffc107;">● Warning Fault</span>
+          <span style="color: #0dcaf0;">● Info Fault</span>
         </div>
       </div>
-      <div class="lg-part-10 md-part-9 sm-part-12">
-          <div id="heatmap-map" style="width:100%"></div>
-          <!-- DATA OUTPUT SECTION ADDED BELOW -->
-          <div id="dataOutputContainer" style="margin-top:20px;">
-            <h3>Data Output</h3>
-            <pre id="dataRaw" style="background:#f9f9f9; padding:10px; border:1px solid #ccc;"></pre>
-            <div id="dataStats"></div>
-          </div>
+    </div>
+    <div class="row">
+      <div class="col-md-8">
+        <div id="map"></div>
+      </div>
+      <div class="col-md-4">
+        <div class="sidebar">
+          <h4>Summary</h4>
+          <ul class="summary-list" id="summaryStats">
+            <li>Total charges: <span id="totalCharges">-</span></li>
+            <li>Avg battery: <span id="avgBattery">-</span></li>
+            <li>Low battery events: <span id="lowBatteryCount">-</span></li>
+            <li>Faults: <span id="faultCount">-</span></li>
+            <li>Critical Faults: <span id="faultCriticalCount">-</span></li>
+            <li>Charging recommendations: <span id="chargingRecommendations">-</span></li>
+            <li>EV vs ICE stats: <span id="evIceStats">-</span></li>
+          </ul>
+          <div id="faultList" style="max-height:150px;overflow-y:auto;"></div>
+        </div>
       </div>
     </div>
   </div>
-</body>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map);
 
+    // Mock data for demonstration (replace with Geotab SDK fetches)
+    const demoData = {
+      devices: [
+        { id: 'EV1', name: 'EV Car 1', type: 'ev' },
+        { id: 'ICE1', name: 'Truck 1', type: 'ice' }
+      ],
+      batteryEvents: [
+        { lat: -36.85, lng: 174.76, device: 'EV1', level: 80, time: '2025-07-28T08:42', low: false },
+        { lat: -36.87, lng: 174.78, device: 'EV1', level: 18, time: '2025-07-28T12:12', low: true }
+      ],
+      chargingEvents: [
+        { lat: -36.86, lng: 174.77, device: 'EV1', time: '2025-07-28T13:01', station: 'Main Depot' }
+      ],
+      faults: [
+        { lat: -36.85, lng: 174.75, device: 'ICE1', code: 'P0420', description: 'Catalyst System Efficiency Below Threshold', severity: 'critical', time: '2025-07-28T10:15' },
+        { lat: -36.86, lng: 174.78, device: 'EV1', code: 'U0121', description: 'Lost Communication With ABS', severity: 'warning', time: '2025-07-28T09:30' }
+      ]
+    };
+
+    function renderDeviceOptions() {
+      const sel = document.getElementById('deviceSelect');
+      sel.innerHTML = '<option value="all">All Devices</option>';
+      demoData.devices.forEach(d =>
+        sel.innerHTML += `<option value="${d.id}">${d.name} (${d.type.toUpperCase()})</option>`
+      );
+    }
+
+    function renderMap() {
+      map.eachLayer(layer => { if (layer instanceof L.CircleMarker || layer instanceof L.Marker) map.removeLayer(layer); });
+      // Battery events
+      demoData.batteryEvents.forEach(e => {
+        const color = e.low ? '#ff3333' : '#00bfff';
+        const marker = L.circleMarker([e.lat, e.lng], { color, radius: 9, fillOpacity: 0.8 })
+          .addTo(map)
+          .bindPopup(
+            `<b>${e.device}</b><br>Battery: ${e.level}%<br>Time: ${e.time}${e.low ? '<br><span style="color:red">Low Battery</span>' : ''}`
+          );
+      });
+      // Charging events
+      demoData.chargingEvents.forEach(e => {
+        L.marker([e.lat, e.lng], { icon: L.divIcon({className: '', html: '<span style="color:#33ff33;font-size:1.5em;">⚡</span>'}) })
+          .addTo(map)
+          .bindPopup(`<b>${e.device}</b><br>Charged at: ${e.station}<br>Time: ${e.time}`);
+      });
+      // Faults
+      demoData.faults.forEach(f => {
+        let color = f.severity === 'critical' ? '#dc3545' : (f.severity === 'warning' ? '#ffc107' : '#0dcaf0');
+        L.circleMarker([f.lat, f.lng], { color, radius: 10, fillOpacity: 0.7 })
+          .addTo(map)
+          .bindPopup(
+            `<b>${f.device}</b><br>Fault: ${f.code}<br>${f.description}<br>Severity: <span style="color:${color}">${f.severity.toUpperCase()}</span><br>Time: ${f.time}`
+          );
+      });
+      // Fit map to markers if any
+      const allCoords = [
+        ...demoData.batteryEvents.map(e => [e.lat, e.lng]),
+        ...demoData.chargingEvents.map(e => [e.lat, e.lng]),
+        ...demoData.faults.map(f => [f.lat, f.lng])
+      ];
+      if (allCoords.length) map.fitBounds(allCoords);
+    }
+
+    function renderSummary() {
+      document.getElementById('totalCharges').textContent = demoData.chargingEvents.length;
+      document.getElementById('avgBattery').textContent = (
+        demoData.batteryEvents.reduce((a, b) => a + b.level, 0) / demoData.batteryEvents.length
+      ).toFixed(1) + '%';
+      document.getElementById('lowBatteryCount').textContent = demoData.batteryEvents.filter(e => e.low).length;
+      document.getElementById('faultCount').textContent = demoData.faults.length;
+      document.getElementById('faultCriticalCount').textContent = demoData.faults.filter(f => f.severity === 'critical').length;
+      document.getElementById('evIceStats').textContent = 
+        `EV: ${demoData.batteryEvents.filter(e => e.device.startsWith('EV')).length} | ICE: ${demoData.faults.filter(f => f.device.startsWith('ICE')).length}`;
+      document.getElementById('chargingRecommendations').textContent = 
+        demoData.batteryEvents.filter(e => e.low).length > 0 ? 'Recommend charging at next opportunity.' : 'All EVs above threshold.';
+      // Fault list
+      let faults = demoData.faults.map(f =>
+        `<div><b>${f.device}</b> [${f.code}] <span style="color:${f.severity === 'critical' ? '#dc3545' : (f.severity === 'warning' ? '#ffc107' : '#0dcaf0')}">${f.severity.toUpperCase()}</span><br>${f.description} (${f.time})</div>`
+      ).join('');
+      document.getElementById('faultList').innerHTML = faults;
+    }
+
+    function exportCSV() {
+      let rows = [
+        ['Type','Device','Lat','Lng','Time','Value','Description','Severity','Station']
+      ];
+      demoData.batteryEvents.forEach(e => rows.push(['Battery', e.device, e.lat, e.lng, e.time, e.level, e.low ? 'Low Battery' : '', '', '']));
+      demoData.chargingEvents.forEach(e => rows.push(['Charge', e.device, e.lat, e.lng, e.time, '', '', '', e.station]));
+      demoData.faults.forEach(f => rows.push(['Fault', f.device, f.lat, f.lng, f.time, f.code, f.description, f.severity, '']));
+      let csv = rows.map(r => r.map(x => `"${x}"`).join(',')).join('\n');
+      let a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'fw_heatmap_export.csv';
+      a.click();
+    }
+
+    function exportMapImage() {
+      alert('Map export to image requires additional JS libraries (e.g., leaflet-image). Integrate as needed.');
+    }
+
+    document.getElementById('exportBtn').onclick = exportCSV;
+    document.getElementById('exportMapBtn').onclick = exportMapImage;
+    document.getElementById('refreshBtn').onclick = () => { renderMap(); renderSummary(); };
+
+    renderDeviceOptions();
+    renderMap();
+    renderSummary();
+  </script>
+</body>
 </html>
