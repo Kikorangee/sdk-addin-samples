@@ -1,11 +1,26 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Enhanced Heatmap</title>
-    <meta charset="utf-8" />
-    <link rel="stylesheet" href="heatmap.css" />
-</head>
-<body>
-    <script src="heatmap.js"></script>
-</body>
-</html>
+{
+  "name": "Enhanced Heatmap",
+  "version": "2.0",
+  "icon": "images/icon.svg",
+  "items": [
+    {
+      "path": "heatmap.html",
+      "menuTitle": {
+        "en": "Enhanced Heatmap"
+      },
+      "supports": ["activeVehicle", "activeGroup"],
+      "supportsPolling": true
+    }
+  ],
+  "files": {
+    "css": ["heatmap.css"],
+    "js": ["heatmap.js"],
+    "html": ["heatmap.html"]
+  },
+  "supportEmail": "your@email.com",
+  "dependencies": {
+    "googleMaps": {
+      "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+    }
+  }
+}
