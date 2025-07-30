@@ -2,17 +2,17 @@
  * Enhanced Geotab Heatmap Add-In
  * Features: Interactive controls, EV battery events, charging events, low battery markers,
  * Fault (DTC) overlays with severity, full summary panel, export options, responsive UI,
- * live SDK queries, and extensible code comments.
- * 
- * @returns {{initialize: Function, focus: Function, blur: Function}}
+ * live SDK queries, enhanced data visualization, and extensible code structure.
  */
+
 geotab.addin.heatmap = () => {
   'use strict';
 
   let api;
-
   let map;
   let heatMapLayer;
+  let markers = [];
+  let infoWindows = [];
 
   // UI elements
   let elExceptionTypes;
@@ -31,8 +31,9 @@ geotab.addin.heatmap = () => {
   let elDataRaw;
   let elDataStats;
 
+  // Configuration
+  const myGeotabGetResultsLimit = 50000;
   let selectedVehicleCount;
-  let myGeotabGetResultsLimit = 50000;
   let startTime;
 
   // Data containers
@@ -42,79 +43,109 @@ geotab.addin.heatmap = () => {
   let summaryStats = {};
 
   /**
-   * Display error message
+   * Error and message handlers
    */
-  let errorHandler = message => { elError.innerHTML = message; };
+  const errorHandler = message => { 
+    if (elError) elError.innerHTML = message; 
+  };
+
+  const messageHandler = message => { 
+    if (elMessage) elMessage.innerHTML = message; 
+  };
 
   /**
-   * Display info message
-   */
-  let messageHandler = message => { elMessage.innerHTML = message; };
-
-  /**
-   * Utility: Check if results array is empty
+   * Utility functions
    */
   function resultsEmpty(results) {
-    if ((!results) || (results.length === 0)) return true;
+    if (!results || results.length === 0) return true;
     for (let i = 0; i < results.length; i++) {
       if (results[i].length > 0) return false;
     }
     return true;
   }
 
-  /**
-   * Format number with commas
-   */
   function formatNumber(num) {
-    return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,')
-  }  
+    return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1,');
+  }
 
-  /**
-   * Get elapsed seconds since startTime
-   */
   function getElapsedTimeSeconds() {
     return Math.round((new Date() - startTime) / 1000);
   }
 
-  /**
-   * Toggle loading spinner
-   */
-  let toggleLoading = show => {
+  function toggleLoading(show) {
+    if (!elLoading) return;
     if (show) {
-      elShowHeatMap.disabled = true;
+      if (elShowHeatMap) elShowHeatMap.disabled = true;
       elLoading.style.display = 'block';
     } else {
       setTimeout(() => { elLoading.style.display = 'none'; }, 600);
-      elShowHeatMap.disabled = false;
+      if (elShowHeatMap) elShowHeatMap.disabled = false;
     }
-  };
+  }
 
   /**
-   * Remove heatmap layer and re-add it
+   * Map and visualization functions
    */
-  let resetHeatMapLayer = () => {
-    if (heatMapLayer !== undefined) map.removeLayer(heatMapLayer);
+  function initializeMap(coords) {
+    map = L.map('heatmap-map').setView([coords.latitude, coords.longitude], 13);
 
-    heatMapLayer = L.heatLayer({
-      radius: { value: 24, absolute: false },
-      opacity: 0.7,
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      subdomains: ['a','b','c']
+    }).addTo(map);
+
+    resetHeatMapLayer();
+    addHeatmapLegend();
+  }
+
+  function resetHeatMapLayer() {
+    if (heatMapLayer) map.removeLayer(heatMapLayer);
+
+    heatMapLayer = L.heatLayer([], {
+      radius: 24,
+      blur: 15,
+      maxZoom: 17,
+      minOpacity: 0.5,
       gradient: {
-        0.45: 'rgb(0,0,255)',
-        0.55: 'rgb(0,255,255)',
-        0.65: 'rgb(0,255,0)',
-        0.95: 'yellow',
-        1.0: 'rgb(255,0,0)'
+        0.4: 'blue',
+        0.6: 'cyan',
+        0.7: 'lime',
+        0.8: 'yellow',
+        1.0: 'red'
       }
     }).addTo(map);
   }
 
+  function addHeatmapLegend() {
+    const legend = L.control({ position: 'bottomright' });
+    legend.onAdd = function() {
+      const div = L.DomUtil.create('div', 'heatmap-legend');
+      div.innerHTML = `
+        <h4>Heatmap Intensity</h4>
+        <div class="legend-gradient"></div>
+        <div class="legend-labels">
+          <span>Low</span>
+          <span>High</span>
+        </div>
+      `;
+      return div;
+    };
+    legend.addTo(map);
+  }
+
+  function clearMarkers() {
+    markers.forEach(marker => map.removeLayer(marker));
+    markers = [];
+  }
+
   /**
-   * Visualize heatmap based on selected data type
+   * Data visualization functions
    */
-  let displayHeatMap = () => {
+  function displayHeatMap() {
+    if (!map) return;
+    clearMarkers();
     resetHeatMapLayer();
 
-    // Ensure at least one vehicle is selected.
     selectedVehicleCount = Array.from(elVehicles.options).filter(opt => opt.selected).length;
     if (selectedVehicleCount === 0) {
       errorHandler('Please select at least one vehicle from the list and try again.');
@@ -123,12 +154,7 @@ geotab.addin.heatmap = () => {
 
     startTime = new Date();
 
-    // Determine selected visualization type
-    let dataType = elEventType.value;
-    switch (dataType) {
-      case "location":
-        displayHeatMapForLocationHistory();
-        break;
+    switch (elEventType.value) {
       case "battery":
         displayEVBatteryEvents();
         break;
@@ -143,26 +169,19 @@ geotab.addin.heatmap = () => {
     }
   }
 
-  /**
-   * Location history heatmap (original logic)
-   */
-  let displayHeatMapForLocationHistory = () => {
-    let deviceIds = getSelectedDeviceIds();
-    let fromValue = elDateFromInput.value;
-    let toValue = elDateToInput.value;
-
-    errorHandler('');
-    messageHandler('');
+  function displayHeatMapForLocationHistory() {
+    const deviceIds = getSelectedDeviceIds();
+    const fromValue = elDateFromInput.value;
+    const toValue = elDateToInput.value;
 
     if (!deviceIds.length || !fromValue || !toValue) return;
 
     toggleLoading(true);
 
-    let dateFrom = new Date(fromValue).toISOString();
-    let dateTo = new Date(toValue).toISOString();
+    const dateFrom = new Date(fromValue).toISOString();
+    const dateTo = new Date(toValue).toISOString();
 
-    // Build array of calls.
-    let calls = deviceIds.map(id => [
+    const calls = deviceIds.map(id => [
       'Get', {
         typeName: 'LogRecord',
         resultsLimit: myGeotabGetResultsLimit,
@@ -170,76 +189,65 @@ geotab.addin.heatmap = () => {
       }
     ]);
 
-    // Execute multicall.
-    api.multiCall(calls, function (results) {
+    api.multiCall(calls, results => {
       if (resultsEmpty(results)) {
         errorHandler('No data to display');
         toggleLoading(false);
-        showDataOutput([]);
+        showEnhancedDataOutput([]);
+        updateSummaryPanel({ totalPoints: 0 });
         return;
       }
 
-      let coordinates = [];
-      let bounds = [];
+      const coordinates = [];
+      const bounds = [];
       let logRecordCount = 0;
       let exceededResultsLimitCount = 0;
 
-      for (let records of results) {
-        for (let rec of records) {
+      results.forEach(records => {
+        records.forEach(rec => {
           if (rec.latitude !== 0 || rec.longitude !== 0) {
-            coordinates.push({ lat: rec.latitude, lon: rec.longitude, value: 1 });
-            bounds.push(new L.LatLng(rec.latitude, rec.longitude));
+            coordinates.push({ lat: rec.latitude, lng: rec.longitude, value: 1 });
+            bounds.push([rec.latitude, rec.longitude]);
             logRecordCount++;
           }
-        }
+        });
         if (records.length >= myGeotabGetResultsLimit) exceededResultsLimitCount++;
-      }
+      });
 
-      // Update map.
       if (coordinates.length > 0) {
+        heatMapLayer.setLatLngs(coordinates.map(c => [c.lat, c.lng, c.value]));
         map.fitBounds(bounds);
-        heatMapLayer.setLatLngs(coordinates);
-        messageHandler(`Displaying ${formatNumber(logRecordCount)} combined log records for the
-          ${formatNumber(selectedVehicleCount)} selected vehicles. [${getElapsedTimeSeconds()} sec]`);
+        messageHandler(`Displaying ${formatNumber(logRecordCount)} log records for ${formatNumber(selectedVehicleCount)} vehicles. [${getElapsedTimeSeconds()} sec]`);
         if (exceededResultsLimitCount > 0) {
-          errorHandler(`Note: Not all results are displayed because the result limit of 
-            ${formatNumber(myGeotabGetResultsLimit)} was exceeded for 
-            ${formatNumber(exceededResultsLimitCount)} of the selected vehicles.`);
+          errorHandler(`Note: Results limited to ${formatNumber(myGeotabGetResultsLimit)} records per vehicle (${exceededResultsLimitCount} vehicles affected)`);
         }
-        showDataOutput(coordinates);
+        showEnhancedDataOutput(coordinates);
         updateSummaryPanel({ totalPoints: logRecordCount });
       } else {
-        errorHandler('No data to display');
-        showDataOutput([]);
+        errorHandler('No valid coordinates found');
+        showEnhancedDataOutput([]);
         updateSummaryPanel({ totalPoints: 0 });
       }
       toggleLoading(false);
-    }, function (errorString) {
+    }, errorString => {
       alert(errorString);
       toggleLoading(false);
     });
-  };
+  }
 
-  /**
-   * EV Battery Events (custom)
-   */
-  let displayEVBatteryEvents = () => {
-    let deviceIds = getSelectedDeviceIds();
-    let fromValue = elDateFromInput.value;
-    let toValue = elDateToInput.value;
-
-    errorHandler('');
-    messageHandler('');
+  function displayEVBatteryEvents() {
+    const deviceIds = getSelectedDeviceIds();
+    const fromValue = elDateFromInput.value;
+    const toValue = elDateToInput.value;
 
     if (!deviceIds.length || !fromValue || !toValue) return;
 
     toggleLoading(true);
 
-    let dateFrom = new Date(fromValue).toISOString();
-    let dateTo = new Date(toValue).toISOString();
+    const dateFrom = new Date(fromValue).toISOString();
+    const dateTo = new Date(toValue).toISOString();
 
-    // Get all battery status events for selected devices
-    let calls = deviceIds.map(id => [
+    const calls = deviceIds.map(id => [
       'Get', {
         typeName: 'StatusData',
         resultsLimit: myGeotabGetResultsLimit,
@@ -251,72 +259,77 @@ geotab.addin.heatmap = () => {
         }
       }
     ]);
-    api.multiCall(calls, function (results) {
-      let points = [];
+
+    api.multiCall(calls, results => {
+      const points = [];
+      const bounds = [];
       let lowBatteryCount = 0;
-      let bounds = [];
-      for (let devIdx = 0; devIdx < results.length; devIdx++) {
-        for (let event of results[devIdx]) {
+
+      results.forEach((deviceResults, devIdx) => {
+        deviceResults.forEach(event => {
           if (event.latitude && event.longitude) {
-            let level = parseFloat(event.data);
-            let isLow = level < 20;
+            const level = parseFloat(event.data);
+            const isLow = level < 20;
             points.push({
               lat: event.latitude,
-              lon: event.longitude,
+              lng: event.longitude,
               value: 1,
               battery: level,
-              low: isLow
+              low: isLow,
+              device: event.device.name || event.device.id,
+              time: event.dateTime
             });
-            bounds.push(new L.LatLng(event.latitude, event.longitude));
+            bounds.push([event.latitude, event.longitude]);
             if (isLow) lowBatteryCount++;
           }
-        }
-      }
+        });
+      });
+
       if (points.length > 0) {
-        map.fitBounds(bounds);
-        // Use circles for battery events
         points.forEach(pt => {
-          L.circleMarker([pt.lat, pt.lon], {
+          const marker = L.circleMarker([pt.lat, pt.lng], {
             color: pt.low ? "#ff3333" : "#00bfff",
             radius: pt.low ? 10 : 7,
             fillOpacity: pt.low ? 0.9 : 0.7
-          }).addTo(map).bindPopup(
-            `Battery: ${pt.battery}%<br>${pt.low ? '<b>Low Battery!</b>' : ''}`
-          );
+          }).addTo(map);
+          marker.bindPopup(createEnhancedTooltip({
+            type: 'battery',
+            ...pt
+          }));
+          markers.push(marker);
         });
-        messageHandler(`Displaying ${formatNumber(points.length)} battery status events. Low battery: ${lowBatteryCount}`);
-        updateSummaryPanel({ batteryPoints: points.length, lowBattery: lowBatteryCount });
+        map.fitBounds(bounds);
+        messageHandler(`Displaying ${formatNumber(points.length)} battery events (${lowBatteryCount} low)`);
+        showEnhancedDataOutput(points);
+        updateSummaryPanel({ 
+          batteryPoints: points.length, 
+          lowBattery: lowBatteryCount 
+        });
       } else {
-        errorHandler('No battery events found.');
+        errorHandler('No battery events found');
+        showEnhancedDataOutput([]);
         updateSummaryPanel({ batteryPoints: 0, lowBattery: 0 });
       }
       toggleLoading(false);
-    }, function (errorString) {
+    }, errorString => {
       alert(errorString);
       toggleLoading(false);
     });
-  };
+  }
 
-  /**
-   * Charging Events (custom)
-   */
-  let displayChargingEvents = () => {
-    let deviceIds = getSelectedDeviceIds();
-    let fromValue = elDateFromInput.value;
-    let toValue = elDateToInput.value;
-
-    errorHandler('');
-    messageHandler('');
+  function displayChargingEvents() {
+    const deviceIds = getSelectedDeviceIds();
+    const fromValue = elDateFromInput.value;
+    const toValue = elDateToInput.value;
 
     if (!deviceIds.length || !fromValue || !toValue) return;
 
     toggleLoading(true);
 
-    let dateFrom = new Date(fromValue).toISOString();
-    let dateTo = new Date(toValue).toISOString();
+    const dateFrom = new Date(fromValue).toISOString();
+    const dateTo = new Date(toValue).toISOString();
 
-    // Get all charging events for selected devices
-    let calls = deviceIds.map(id => [
+    const calls = deviceIds.map(id => [
       'Get', {
         typeName: 'StatusData',
         resultsLimit: myGeotabGetResultsLimit,
@@ -328,58 +341,69 @@ geotab.addin.heatmap = () => {
         }
       }
     ]);
-    api.multiCall(calls, function (results) {
-      let points = [];
-      let bounds = [];
-      for (let devIdx = 0; devIdx < results.length; devIdx++) {
-        for (let event of results[devIdx]) {
+
+    api.multiCall(calls, results => {
+      const points = [];
+      const bounds = [];
+
+      results.forEach(deviceResults => {
+        deviceResults.forEach(event => {
           if (event.latitude && event.longitude) {
-            points.push({ lat: event.latitude, lon: event.longitude, value: 1 });
-            bounds.push(new L.LatLng(event.latitude, event.longitude));
+            points.push({ 
+              lat: event.latitude, 
+              lng: event.longitude,
+              device: event.device.name || event.device.id,
+              station: event.locationName || "Unknown",
+              time: event.dateTime
+            });
+            bounds.push([event.latitude, event.longitude]);
           }
-        }
-      }
-      if (points.length > 0) {
-        map.fitBounds(bounds);
-        // Use lightning icon for charging events
-        points.forEach(pt => {
-          L.marker([pt.lat, pt.lon], {
-            icon: L.divIcon({ className: '', html: '<span style="color:#33ff33;font-size:1.5em;">⚡</span>' })
-          }).addTo(map).bindPopup('Charging Event');
         });
-        messageHandler(`Displaying ${formatNumber(points.length)} charging events.`);
+      });
+
+      if (points.length > 0) {
+        points.forEach(pt => {
+          const marker = L.marker([pt.lat, pt.lng], {
+            icon: L.divIcon({ 
+              className: 'charging-marker', 
+              html: '<span style="font-size:1.5em;">⚡</span>' 
+            })
+          }).addTo(map);
+          marker.bindPopup(createEnhancedTooltip({
+            type: 'charging',
+            ...pt
+          }));
+          markers.push(marker);
+        });
+        map.fitBounds(bounds);
+        messageHandler(`Displaying ${formatNumber(points.length)} charging events`);
+        showEnhancedDataOutput(points);
         updateSummaryPanel({ chargingPoints: points.length });
       } else {
-        errorHandler('No charging events found.');
+        errorHandler('No charging events found');
+        showEnhancedDataOutput([]);
         updateSummaryPanel({ chargingPoints: 0 });
       }
       toggleLoading(false);
-    }, function (errorString) {
+    }, errorString => {
       alert(errorString);
       toggleLoading(false);
     });
-  };
+  }
 
-  /**
-   * Fault (DTC) Events with severity overlays
-   */
-  let displayFaultEvents = () => {
-    let deviceIds = getSelectedDeviceIds();
-    let fromValue = elDateFromInput.value;
-    let toValue = elDateToInput.value;
-
-    errorHandler('');
-    messageHandler('');
+  function displayFaultEvents() {
+    const deviceIds = getSelectedDeviceIds();
+    const fromValue = elDateFromInput.value;
+    const toValue = elDateToInput.value;
 
     if (!deviceIds.length || !fromValue || !toValue) return;
 
     toggleLoading(true);
 
-    let dateFrom = new Date(fromValue).toISOString();
-    let dateTo = new Date(toValue).toISOString();
+    const dateFrom = new Date(fromValue).toISOString();
+    const dateTo = new Date(toValue).toISOString();
 
-    // Get all faults for selected devices
-    let calls = deviceIds.map(id => [
+    const calls = deviceIds.map(id => [
       'Get', {
         typeName: 'FaultData',
         resultsLimit: myGeotabGetResultsLimit,
@@ -390,45 +414,54 @@ geotab.addin.heatmap = () => {
         }
       }
     ]);
-    api.multiCall(calls, function (results) {
-      let points = [];
-      let bounds = [];
+
+    api.multiCall(calls, results => {
+      const points = [];
+      const bounds = [];
       let criticalCount = 0;
       let warningCount = 0;
       let infoCount = 0;
-      for (let devIdx = 0; devIdx < results.length; devIdx++) {
-        for (let fault of results[devIdx]) {
+
+      results.forEach(deviceResults => {
+        deviceResults.forEach(fault => {
           if (fault.latitude && fault.longitude) {
-            let severity = fault.severity || "info";
+            const severity = fault.severity || "info";
             if (severity === "critical") criticalCount++;
             else if (severity === "warning") warningCount++;
             else infoCount++;
+            
             points.push({
               lat: fault.latitude,
-              lon: fault.longitude,
-              value: 1,
+              lng: fault.longitude,
+              device: fault.device.name || fault.device.id,
               code: fault.diagnostic.code,
-              desc: fault.diagnostic.description,
-              severity
+              description: fault.diagnostic.description,
+              severity,
+              time: fault.dateTime
             });
-            bounds.push(new L.LatLng(fault.latitude, fault.longitude));
+            bounds.push([fault.latitude, fault.longitude]);
           }
-        }
-      }
-      if (points.length > 0) {
-        map.fitBounds(bounds);
-        // Show severity overlays
-        points.forEach(pt => {
-          let color = pt.severity === "critical" ? "#dc3545"
-            : pt.severity === "warning" ? "#ffc107"
-            : "#0dcaf0";
-          L.circleMarker([pt.lat, pt.lon], { color, radius: 10, fillOpacity: 0.7 })
-            .addTo(map)
-            .bindPopup(
-              `<b>Fault: ${pt.code}</b><br>${pt.desc}<br>Severity: <span style="color:${color}">${pt.severity.toUpperCase()}</span>`
-            );
         });
-        messageHandler(`Displaying ${formatNumber(points.length)} faults. Critical: ${criticalCount}, Warning: ${warningCount}, Info: ${infoCount}`);
+      });
+
+      if (points.length > 0) {
+        points.forEach(pt => {
+          const color = pt.severity === "critical" ? "#dc3545" :
+                       pt.severity === "warning" ? "#ffc107" : "#0dcaf0";
+          const marker = L.circleMarker([pt.lat, pt.lng], { 
+            color,
+            radius: 10,
+            fillOpacity: 0.7
+          }).addTo(map);
+          marker.bindPopup(createEnhancedTooltip({
+            type: 'fault',
+            ...pt
+          }));
+          markers.push(marker);
+        });
+        map.fitBounds(bounds);
+        messageHandler(`Displaying ${formatNumber(points.length)} faults (Critical: ${criticalCount}, Warning: ${warningCount}, Info: ${infoCount})`);
+        showEnhancedDataOutput(points);
         updateSummaryPanel({
           faultPoints: points.length,
           faultCritical: criticalCount,
@@ -436,61 +469,153 @@ geotab.addin.heatmap = () => {
           faultInfo: infoCount
         });
       } else {
-        errorHandler('No faults found.');
-        updateSummaryPanel({ faultPoints: 0, faultCritical: 0, faultWarning: 0, faultInfo: 0 });
+        errorHandler('No faults found');
+        showEnhancedDataOutput([]);
+        updateSummaryPanel({ 
+          faultPoints: 0, 
+          faultCritical: 0, 
+          faultWarning: 0, 
+          faultInfo: 0 
+        });
       }
       toggleLoading(false);
-    }, function (errorString) {
+    }, errorString => {
       alert(errorString);
       toggleLoading(false);
     });
-  };
-
-  /**
-   * Get all selected vehicle IDs
-   */
-  function getSelectedDeviceIds() {
-    return Array.from(elVehicles.options).filter(opt => opt.selected).map(opt => opt.value);
   }
 
   /**
-   * Update summary panel with latest stats
-   * Extend this function for more analytics
+   * Enhanced visualization functions
    */
-  function updateSummaryPanel(stats = {}) {
-    if (!elSummary) return;
-    elSummary.innerHTML = `
-      <ul>
-        <li>Total Log Points: ${stats.totalPoints ?? '-'}</li>
-        <li>Battery Events: ${stats.batteryPoints ?? '-'}</li>
-        <li>Low Battery: ${stats.lowBattery ?? '-'}</li>
-        <li>Charging Events: ${stats.chargingPoints ?? '-'}</li>
-        <li>Faults: ${stats.faultPoints ?? '-'}</li>
-        <li>Critical Faults: ${stats.faultCritical ?? '-'}</li>
-        <li>Warning Faults: ${stats.faultWarning ?? '-'}</li>
-        <li>Info Faults: ${stats.faultInfo ?? '-'}</li>
-      </ul>
+  function showEnhancedDataOutput(data) {
+    if (!elDataRaw || !elDataStats) return;
+    
+    // Show first 100 points in raw data view
+    elDataRaw.textContent = JSON.stringify(data.slice(0, 100), null, 2);
+    
+    // Calculate statistics
+    const stats = {
+      totalPoints: data.length,
+      avgLat: data.reduce((sum, pt) => sum + pt.lat, 0) / data.length,
+      avgLng: data.reduce((sum, pt) => sum + pt.lng, 0) / data.length,
+      minLat: Math.min(...data.map(pt => pt.lat)),
+      maxLat: Math.max(...data.map(pt => pt.lat)),
+      minLng: Math.min(...data.map(pt => pt.lng)),
+      maxLng: Math.max(...data.map(pt => pt.lng))
+    };
+    
+    // Update stats display
+    elDataStats.innerHTML = `
+      <div class="data-stats">
+        <h5>Data Statistics</h5>
+        <ul>
+          <li>Total Points: ${formatNumber(stats.totalPoints)}</li>
+          <li>Avg Latitude: ${stats.avgLat.toFixed(6)}</li>
+          <li>Avg Longitude: ${stats.avgLng.toFixed(6)}</li>
+          <li>Latitude Range: ${stats.minLat.toFixed(6)} to ${stats.maxLat.toFixed(6)}</li>
+          <li>Longitude Range: ${stats.minLng.toFixed(6)} to ${stats.maxLng.toFixed(6)}</li>
+        </ul>
+      </div>
     `;
   }
 
-  /**
-   * Export data as CSV. Extend for more options.
-   */
+  function createEnhancedTooltip(data) {
+    let content = `<div class="heatmap-tooltip">`;
+    
+    switch(data.type) {
+      case 'battery':
+        content += `
+          <h4>${data.device}</h4>
+          <p><strong>Battery Level:</strong> ${data.battery}%</p>
+          <p><strong>Time:</strong> ${new Date(data.time).toLocaleString()}</p>
+          ${data.low ? '<p class="text-danger"><strong>⚠ Low Battery Warning</strong></p>' : ''}
+        `;
+        break;
+        
+      case 'charging':
+        content += `
+          <h4>Charging Event</h4>
+          <p><strong>Device:</strong> ${data.device}</p>
+          <p><strong>Location:</strong> ${data.station}</p>
+          <p><strong>Time:</strong> ${new Date(data.time).toLocaleString()}</p>
+        `;
+        break;
+        
+      case 'fault':
+        content += `
+          <h4>Fault Report</h4>
+          <p><strong>Device:</strong> ${data.device}</p>
+          <p><strong>Code:</strong> ${data.code}</p>
+          <p><strong>Description:</strong> ${data.description}</p>
+          <p><strong>Severity:</strong> <span class="text-${data.severity}">${data.severity.toUpperCase()}</span></p>
+          <p><strong>Time:</strong> ${new Date(data.time).toLocaleString()}</p>
+        `;
+        break;
+        
+      default:
+        content += `
+          <h4>Location Data</h4>
+          <p><strong>Coordinates:</strong> ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</p>
+        `;
+    }
+    
+    content += `</div>`;
+    return content;
+  }
+
+  function updateSummaryPanel(stats = {}) {
+    if (!elSummary) return;
+    elSummary.innerHTML = `
+      <div class="summary-panel">
+        <h4>Summary Statistics</h4>
+        <ul>
+          <li>Total Points: ${stats.totalPoints ?? '-'}</li>
+          <li>Battery Events: ${stats.batteryPoints ?? '-'}</li>
+          <li>Low Battery Events: ${stats.lowBattery ?? '-'}</li>
+          <li>Charging Events: ${stats.chargingPoints ?? '-'}</li>
+          <li>Total Faults: ${stats.faultPoints ?? '-'}</li>
+          <li>Critical Faults: ${stats.faultCritical ?? '-'}</li>
+          <li>Warning Faults: ${stats.faultWarning ?? '-'}</li>
+          <li>Info Faults: ${stats.faultInfo ?? '-'}</li>
+        </ul>
+      </div>
+    `;
+  }
+
+  function getSelectedDeviceIds() {
+    return Array.from(elVehicles.options)
+      .filter(opt => opt.selected)
+      .map(opt => opt.value);
+  }
+
   function exportDataAsCSV() {
-    let rows = [["Type", "Lat", "Lon", "Value", "Details"]];
-    // Location history (add as needed)
-    // Battery events
+    let rows = [["Type", "Latitude", "Longitude", "Value", "Details", "Time"]];
+    
+    // Add location data if available
+    if (heatMapLayer && heatMapLayer.getLatLngs().length > 0) {
+      heatMapLayer.getLatLngs().forEach(pt => {
+        rows.push(["Location", pt.lat, pt.lng, pt.value || 1, "", ""]);
+      });
+    }
+    
+    // Add battery events
     batteryEvents.forEach(e => {
-      rows.push(["Battery", e.lat, e.lon, e.value, `Level: ${e.battery}`]);
+      rows.push(["Battery", e.lat, e.lng, e.value, `Level: ${e.battery}%`, e.time]);
     });
+    
+    // Add charging events
     chargingEvents.forEach(e => {
-      rows.push(["Charging", e.lat, e.lon, e.value, "Charging Event"]);
+      rows.push(["Charging", e.lat, e.lng, e.value, `Station: ${e.station}`, e.time]);
     });
-    faults.forEach(e => {
-      rows.push(["Fault", e.lat, e.lon, e.value, `Code: ${e.code}, Severity: ${e.severity}`]);
+    
+    // Add faults
+    faults.forEach(f => {
+      rows.push(["Fault", f.lat, f.lng, 1, `Code: ${f.code}, Severity: ${f.severity}`, f.time]);
     });
-    let csv = rows.map(r => r.join(",")).join("\n");
-    let a = document.createElement("a");
+    
+    const csv = rows.map(r => r.join(",")).join("\n");
+    const a = document.createElement("a");
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
     a.download = 'heatmap_export.csv';
     document.body.appendChild(a);
@@ -499,21 +624,12 @@ geotab.addin.heatmap = () => {
   }
 
   /**
-   * Enhanced UI initialization
+   * UI initialization
    */
-  let initializeInterface = coords => {
-    // Setup the map
-    map = new L.Map('heatmap-map', {
-      center: new L.LatLng(coords.latitude, coords.longitude),
-      zoom: 13
-    });
-
-    L.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      subdomains: ['a','b','c']
-    }).addTo(map);
-
-    // Find reused elements (add new controls for enhancements)
+  function initializeInterface(coords) {
+    initializeMap(coords);
+    
+    // Get DOM elements
     elExceptionTypes = document.getElementById('exceptionTypes');
     elVehicles = document.getElementById('vehicles');
     elDateFromInput = document.getElementById('from');
@@ -522,90 +638,39 @@ geotab.addin.heatmap = () => {
     elError = document.getElementById('error');
     elMessage = document.getElementById('message');
     elLoading = document.getElementById('loading');
-    elSummary = document.getElementById('summaryPanel');      // Add <div id="summaryPanel"></div> in HTML
-    elExportBtn = document.getElementById('exportBtn');       // Add <button id="exportBtn"></button>
-    elEventType = document.getElementById('eventType');       // Add <select id="eventType"></select>
-    elLowBatteryToggle = document.getElementById('showLowBattery'); // Add <input id="showLowBattery" type="checkbox">
-    elShowFaultOverlay = document.getElementById('showFaultSeverity'); // Add <input id="showFaultSeverity" type="checkbox">
+    elSummary = document.getElementById('summaryPanel');
+    elExportBtn = document.getElementById('exportBtn');
+    elEventType = document.getElementById('eventType');
+    elLowBatteryToggle = document.getElementById('showLowBattery');
+    elShowFaultOverlay = document.getElementById('showFaultSeverity');
     elDataRaw = document.getElementById('dataRaw');
     elDataStats = document.getElementById('dataStats');
 
-    // Set up event listeners for new controls
-    if (elExportBtn) {
-      elExportBtn.addEventListener('click', () => exportDataAsCSV());
-    }
-    if (elEventType) {
-      elEventType.addEventListener('change', () => displayHeatMap());
-    }
-    if (elLowBatteryToggle) {
-      elLowBatteryToggle.addEventListener('change', () => displayEVBatteryEvents());
-    }
-    if (elShowFaultOverlay) {
-      elShowFaultOverlay.addEventListener('change', () => displayFaultEvents());
-    }
-
-    // Original listeners
-    document.getElementById('visualizeByLocationHistory').addEventListener('click', event => {
-      elExceptionTypes.disabled = true;
-    });
-
-    document.getElementById('visualizeByExceptionHistory').addEventListener('click', event => {
-      elExceptionTypes.disabled = false;
-    });
-
-    elExceptionTypes.addEventListener('change', event => { event.preventDefault(); });
-    elVehicles.addEventListener('change', event => { event.preventDefault(); });
-    elDateFromInput.addEventListener('change', event => { event.preventDefault(); });
-    elDateToInput.addEventListener('change', event => { event.preventDefault(); });
-    elShowHeatMap.addEventListener('click', event => {
-      event.preventDefault();
+    // Set up event listeners
+    if (elExportBtn) elExportBtn.addEventListener('click', exportDataAsCSV);
+    if (elEventType) elEventType.addEventListener('change', displayHeatMap);
+    if (elLowBatteryToggle) elLowBatteryToggle.addEventListener('change', displayHeatMap);
+    if (elShowFaultOverlay) elShowFaultOverlay.addEventListener('change', displayHeatMap);
+    if (elShowHeatMap) elShowHeatMap.addEventListener('click', e => {
+      e.preventDefault();
       displayHeatMap();
-    });    
+    });
 
-    // Set up dates
-    let now = new Date();
-    let dd = now.getDate();
-    let mm = now.getMonth() + 1;
-    let yy = now.getFullYear();
-    if (dd < 10) dd = '0' + dd;
-    if (mm < 10) mm = '0' + mm;
-    elDateFromInput.value = yy + '-' + mm + '-' + dd + 'T00:00';
-    elDateToInput.value = yy + '-' + mm + '-' + dd + 'T23:59';
-  };
+    // Set default dates
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    elDateFromInput.value = `${today}T00:00`;
+    elDateToInput.value = `${today}T23:59`;
+  }
 
-  /**
-   * Sorter for named entities
-   */
-  let sortByName = (a, b) => {
+  function sortByName(a, b) {
     a = a.name.toLowerCase();
     b = b.name.toLowerCase();
     return a === b ? 0 : a > b ? 1 : -1;
-  };
-
-  // ---- Data Output and Statistics Function ----
-  function showDataOutput(coordinates) {
-    if (!elDataRaw || !elDataStats) return;
-    let arr = coordinates.map(d => ([d.lat, d.lon]));
-    elDataRaw.textContent = JSON.stringify(arr, null, 2);
-    if (!arr.length) {
-      elDataStats.textContent = 'No data.';
-      return;
-    }
-    let count = arr.length;
-    let latitudes = arr.map(d => d[0]);
-    let longitudes = arr.map(d => d[1]);
-    let avgLat = latitudes.reduce((a, b) => a + b, 0) / count;
-    let avgLng = longitudes.reduce((a, b) => a + b, 0) / count;
-    elDataStats.innerHTML =
-      '<ul>' +
-      '<li>Total points: ' + count + '</li>' +
-      '<li>Average Latitude: ' + avgLat.toFixed(5) + '</li>' +
-      '<li>Average Longitude: ' + avgLng.toFixed(5) + '</li>' +
-      '</ul>';
   }
 
   /**
-   * SDK lifecycle: initialize, focus
+   * SDK lifecycle methods
    */
   return {
     initialize(freshApi, state, callback) {
@@ -614,46 +679,51 @@ geotab.addin.heatmap = () => {
         navigator.geolocation.getCurrentPosition(position => {
           initializeInterface(position.coords);
           callback();
+        }, () => {
+          initializeInterface({ latitude: 0, longitude: 0 });
+          callback();
         });
       } else {
-        initializeInterface({ longitude: -79.709441, latitude: 43.434497 });
+        initializeInterface({ latitude: 0, longitude: 0 });
         callback();
       }
     },
+
     focus(freshApi, freshState) {
       api = freshApi;
-      // Populate vehicles list.
+      
+      // Populate vehicles list
       api.call('Get', {
         typeName: 'Device',
         resultsLimit: 50000,
         search: { fromDate: new Date().toISOString(), groups: freshState.getGroupFilter() }
       }, vehicles => {
-        if (!vehicles || vehicles.length < 0) return;
+        if (!vehicles || vehicles.length === 0) return;
         vehicles.sort(sortByName);
         vehicles.forEach(vehicle => {
-          let option = new Option();
-          option.text = vehicle.name;
-          option.value = vehicle.id;
+          const option = new Option(vehicle.name, vehicle.id);
           elVehicles.add(option);
         });
       }, errorHandler);
 
-      // Populate exceptions list.
+      // Populate exceptions list
       api.call('Get', {
         typeName: 'Rule',
         resultsLimit: 50000
       }, rules => {
-        if (!rules || rules.length < 0) return;
+        if (!rules || rules.length === 0) return;
         rules.sort(sortByName);
         rules.forEach(rule => {
-          let option = new Option();
-          option.text = rule.name;
-          option.value = rule.id;
+          const option = new Option(rule.name, rule.id);
           elExceptionTypes.add(option);
         });
       }, errorHandler);
 
-      setTimeout(() => { map.invalidateSize(); }, 200);
+      setTimeout(() => { if (map) map.invalidateSize(); }, 200);
+    },
+
+    blur() {
+      // Cleanup if needed
     }
   };
 };
