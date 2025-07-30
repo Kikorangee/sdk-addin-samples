@@ -235,8 +235,12 @@ geotab.addin.heatmap = () => {
           ${formatNumber(myGeotabGetResultsLimit)} was exceeded for 
           ${formatNumber(exceededResultsLimitCount)} of the selected vehicles.`);  
         }
+        // --- Show data output and statistics ---
+        showDataOutput(coordinates);
       } else {
         errorHandler('No data to display');
+        // --- Clear data output if no data ---
+        showDataOutput([]);
       }      
       toggleLoading(false);
     }, function (errorString) {
@@ -306,6 +310,8 @@ geotab.addin.heatmap = () => {
       if (resultsEmpty(results)) {
         errorHandler('No data to display');
         toggleLoading(false);
+        // --- Clear data output if no data ---
+        showDataOutput([]);
         return;
       }
       
@@ -345,6 +351,8 @@ geotab.addin.heatmap = () => {
         if (resultsEmpty(results)) {
           errorHandler('No data to display');
           toggleLoading(false);
+          // --- Clear data output if no data ---
+          showDataOutput([]);
           return;
         } 
 
@@ -402,19 +410,27 @@ geotab.addin.heatmap = () => {
             errorMessage += '.';
             errorHandler(errorMessage);
           }
+          // --- Show data output and statistics ---
+          showDataOutput(coordinates);
           toggleLoading(false);
         } else {
           errorHandler('No data to display');
+          // --- Clear data output if no data ---
+          showDataOutput([]);
         }      
       }, function (errorString) {
         // eslint-disable-next-line no-alert
         alert(errorString);
         toggleLoading(false);
+        // --- Clear data output if error ---
+        showDataOutput([]);
       });
     }, function (errorString) {
       // eslint-disable-next-line no-alert
       alert(errorString);
       toggleLoading(false);
+      // --- Clear data output if error ---
+      showDataOutput([]);
     });
   };
 
@@ -510,6 +526,44 @@ geotab.addin.heatmap = () => {
 
     return -1;
   };
+
+  // ---- Data Output and Statistics Function ----
+  function showDataOutput(coordinates) {
+    var rawDataElem = document.getElementById('dataRaw');
+    var statsElem = document.getElementById('dataStats');
+    if (!rawDataElem || !statsElem) return;
+
+    // Convert to plain lat/lng array for stats
+    var arr = coordinates.map(function(d) {
+      if (typeof d.lat !== "undefined" && typeof d.lon !== "undefined") {
+        return [d.lat, d.lon];
+      } else if (Array.isArray(d)) {
+        return d;
+      } else {
+        return [0, 0];
+      }
+    });
+
+    rawDataElem.textContent = JSON.stringify(arr, null, 2);
+
+    if (!arr.length) {
+      statsElem.textContent = 'No data.';
+      return;
+    }
+    var count = arr.length;
+    var latitudes = arr.map(function(d) { return d[0]; });
+    var longitudes = arr.map(function(d) { return d[1]; });
+
+    var avgLat = latitudes.reduce(function(a, b) { return a + b; }, 0) / count;
+    var avgLng = longitudes.reduce(function(a, b) { return a + b; }, 0) / count;
+
+    statsElem.innerHTML =
+      '<ul>' +
+      '<li>Total points: ' + count + '</li>' +
+      '<li>Average Latitude: ' + avgLat.toFixed(5) + '</li>' +
+      '<li>Average Longitude: ' + avgLng.toFixed(5) + '</li>' +
+      '</ul>';
+  }
 
   return {
     initialize(freshApi, state, callback) {
