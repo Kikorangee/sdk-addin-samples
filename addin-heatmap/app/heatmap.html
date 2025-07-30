@@ -20,6 +20,9 @@
     .leaflet-popup-content { min-width: 180px; }
     .summary-list li { margin-bottom: 0.5em; }
     #nodata-msg { padding: 2em; text-align: center; color: #666; font-size: 1.2em; }
+    /* --- Enhancement styles --- */
+    #dataRaw { max-height: 120px; overflow-y: auto; background: #f5f5f5; padding: 0.5em; border-radius: 6px; margin-top: 1em; font-size: 0.95em;}
+    #dataStats { margin-top: .5em; font-size: 0.95em;}
     @media (max-width: 768px) {
       #map { height: 35vh; }
     }
@@ -48,6 +51,16 @@
           <button id="refreshBtn" class="btn btn-primary btn-sm" aria-label="Refresh Data">Refresh</button>
           <button id="exportBtn" class="btn btn-outline-secondary btn-sm" aria-label="Export CSV">Export CSV</button>
           <button id="exportMapBtn" class="btn btn-outline-secondary btn-sm" aria-label="Export Map as Image">Export Map</button>
+          <!-- ==================== Enhancements Start ==================== -->
+          <label class="form-check-label ms-2">
+            <input type="checkbox" id="showLowBattery" class="form-check-input" checked />
+            Show Low Battery Markers
+          </label>
+          <label class="form-check-label ms-2">
+            <input type="checkbox" id="showFaultSeverity" class="form-check-input" checked />
+            Show Fault Severity Overlay
+          </label>
+          <!-- ==================== Enhancements End ==================== -->
         </div>
         <div class="legend">
           <strong>Legend:</strong>
@@ -65,6 +78,13 @@
       <div class="col-md-8">
         <div id="map"></div>
         <div id="nodata-msg" style="display:none;"></div>
+        <!-- ==================== Enhancements Start ==================== -->
+        <div>
+          <h5 class="mt-3 mb-1">Raw Data Output</h5>
+          <pre id="dataRaw"></pre>
+          <div id="dataStats"></div>
+        </div>
+        <!-- ==================== Enhancements End ==================== -->
       </div>
       <div class="col-md-4">
         <div class="sidebar">
