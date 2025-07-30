@@ -366,7 +366,9 @@ geotab.addin.heatmap = () => {
           const marker = L.marker([pt.lat, pt.lng], {
             icon: L.divIcon({ 
               className: 'charging-marker', 
-              html: '<span style="font-size:1.5em;">⚡</span>' 
+              html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <path fill="yellow" d="M7 2v11h3v9l7-12h-4l4-8z"/>
+</svg>' 
             })
           }).addTo(map);
           marker.bindPopup(createEnhancedTooltip({
