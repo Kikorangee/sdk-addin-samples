@@ -29,6 +29,8 @@
   <!-- build:js scripts/main.js -->
   <script src="scripts/main.js"></script>
   <!-- endbuild -->
+  <!-- add the new script for data output -->
+  <script src="scripts/heatmap.js"></script>
 </head>
 
 <body>
@@ -104,7 +106,13 @@
       </div>
       <div class="lg-part-10 md-part-9 sm-part-12">
           <div id="heatmap-map" style="width:100%"></div>
-        </div>
+          <!-- DATA OUTPUT SECTION ADDED BELOW -->
+          <div id="dataOutputContainer" style="margin-top:20px;">
+            <h3>Data Output</h3>
+            <pre id="dataRaw" style="background:#f9f9f9; padding:10px; border:1px solid #ccc;"></pre>
+            <div id="dataStats"></div>
+          </div>
+      </div>
     </div>
   </div>
 </body>
