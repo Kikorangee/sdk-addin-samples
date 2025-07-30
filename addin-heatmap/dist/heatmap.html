@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/@geotab/sdk@latest/dist/sdk.min.js"></script>
   <style>
     #map { height: 60vh; min-height: 320px; }
     .sidebar { padding: 1em; background: #f8f9fa; border-radius: 8px; box-shadow: 0 2px 8px #ddd; }
@@ -18,6 +19,7 @@
     .fault-info { color: #0dcaf0; }
     .leaflet-popup-content { min-width: 180px; }
     .summary-list li { margin-bottom: 0.5em; }
+    #nodata-msg { padding: 2em; text-align: center; color: #666; font-size: 1.2em; }
     @media (max-width: 768px) {
       #map { height: 35vh; }
     }
@@ -43,9 +45,9 @@
             <option value="faults">Faults</option>
             <option value="efficiency">Route Efficiency</option>
           </select>
-          <button id="refreshBtn" class="btn btn-primary btn-sm">Refresh</button>
-          <button id="exportBtn" class="btn btn-outline-secondary btn-sm">Export CSV</button>
-          <button id="exportMapBtn" class="btn btn-outline-secondary btn-sm">Export Map</button>
+          <button id="refreshBtn" class="btn btn-primary btn-sm" aria-label="Refresh Data">Refresh</button>
+          <button id="exportBtn" class="btn btn-outline-secondary btn-sm" aria-label="Export CSV">Export CSV</button>
+          <button id="exportMapBtn" class="btn btn-outline-secondary btn-sm" aria-label="Export Map as Image">Export Map</button>
         </div>
         <div class="legend">
           <strong>Legend:</strong>
@@ -62,6 +64,7 @@
     <div class="row">
       <div class="col-md-8">
         <div id="map"></div>
+        <div id="nodata-msg" style="display:none;"></div>
       </div>
       <div class="col-md-4">
         <div class="sidebar">
@@ -76,6 +79,7 @@
             <li>EV vs ICE stats: <span id="evIceStats">-</span></li>
           </ul>
           <div id="faultList" style="max-height:150px;overflow-y:auto;"></div>
+          <div id="no-fleet-msg" style="display:none; color:#b00; font-weight:bold; margin-top:1em;"></div>
         </div>
       </div>
     </div>
@@ -86,52 +90,204 @@
     let map = L.map('map').setView([0, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map);
 
-    // Mock data for demonstration (replace with Geotab SDK fetches)
-    const demoData = {
-      devices: [
-        { id: 'EV1', name: 'EV Car 1', type: 'ev' },
-        { id: 'ICE1', name: 'Truck 1', type: 'ice' }
-      ],
-      batteryEvents: [
-        { lat: -36.85, lng: 174.76, device: 'EV1', level: 80, time: '2025-07-28T08:42', low: false },
-        { lat: -36.87, lng: 174.78, device: 'EV1', level: 18, time: '2025-07-28T12:12', low: true }
-      ],
-      chargingEvents: [
-        { lat: -36.86, lng: 174.77, device: 'EV1', time: '2025-07-28T13:01', station: 'Main Depot' }
-      ],
-      faults: [
-        { lat: -36.85, lng: 174.75, device: 'ICE1', code: 'P0420', description: 'Catalyst System Efficiency Below Threshold', severity: 'critical', time: '2025-07-28T10:15' },
-        { lat: -36.86, lng: 174.78, device: 'EV1', code: 'U0121', description: 'Lost Communication With ABS', severity: 'warning', time: '2025-07-28T09:30' }
-      ]
-    };
+    const sdk = new geotab.sdk.API();
+    let devices = [];
+    let batteryEvents = [];
+    let chargingEvents = [];
+    let faults = [];
 
+    function getDateRange() {
+      let start = document.getElementById('startDate').value;
+      let end = document.getElementById('endDate').value;
+      if (!start || !end) {
+        let now = new Date();
+        let past = new Date(now); past.setDate(now.getDate() - 7);
+        start = past.toISOString().substring(0, 10);
+        end = now.toISOString().substring(0, 10);
+        document.getElementById('startDate').value = start;
+        document.getElementById('endDate').value = end;
+      }
+      return { start, end };
+    }
+    function getDeviceFilter() {
+      let sel = document.getElementById('deviceSelect');
+      return sel.value === "all" ? null : sel.value;
+    }
+    function getEVFilter() {
+      let sel = document.getElementById('evFilter');
+      return sel.value;
+    }
+    function getDataType() {
+      let sel = document.getElementById('dataType');
+      return sel.value;
+    }
+
+    async function authenticate() {
+      try {
+        await fetchDevices();
+        if (!devices.length) {
+          showNoFleet();
+          clearMap();
+          clearSummary();
+          return;
+        }
+        await fetchBatteryEvents();
+        await fetchChargingEvents();
+        await fetchFaults();
+        renderDeviceOptions();
+        filterAndRender();
+      } catch (e) {
+        showNoFleet("Error loading data from Geotab: " + e.message);
+        clearMap();
+        clearSummary();
+      }
+    }
+
+    function showNoFleet(msg) {
+      msg = msg || "No vehicles found in fleet.";
+      document.getElementById("no-fleet-msg").style.display = "";
+      document.getElementById("no-fleet-msg").textContent = msg;
+      document.getElementById("nodata-msg").style.display = "none";
+      document.getElementById("deviceSelect").innerHTML = '<option>All Devices</option>';
+    }
+    function showNoData(msg) {
+      document.getElementById("nodata-msg").style.display = "";
+      document.getElementById("nodata-msg").textContent = msg || "No data available for this time range.";
+      document.getElementById("no-fleet-msg").style.display = "none";
+    }
+    function clearMap() {
+      map.eachLayer(layer => { if (layer instanceof L.CircleMarker || layer instanceof L.Marker) map.removeLayer(layer); });
+      document.getElementById("nodata-msg").style.display = "";
+      document.getElementById("nodata-msg").textContent = "No data available for this time range.";
+    }
+    function clearSummary() {
+      document.getElementById("summaryStats").querySelectorAll("span").forEach(span => span.textContent = "-");
+      document.getElementById("faultList").innerHTML = "";
+    }
+
+    // Real fleet devices, NO samples
+    async function fetchDevices() {
+      devices = await sdk.call("Get", { typeName: "Device", search: {} });
+    }
+    async function fetchBatteryEvents() {
+      let diagnostics = await sdk.call("Get", { typeName: "Diagnostic", search: { code: "BatteryLevel" } });
+      let diagnosticId = diagnostics[0] ? diagnostics[0].id : null;
+      if (!diagnosticId) { batteryEvents = []; return; }
+      let { start, end } = getDateRange();
+      let statusData = await sdk.call("Get", {
+        typeName: "StatusData",
+        search: {
+          diagnosticSearch: { id: diagnosticId },
+          fromDate: start,
+          toDate: end
+        }
+      });
+      batteryEvents = statusData.map(sd => ({
+        lat: sd.latitude,
+        lng: sd.longitude,
+        device: devices.find(d => d.id === sd.device.id)?.name || sd.device.id,
+        deviceId: sd.device.id,
+        level: Number(sd.data),
+        time: sd.dateTime,
+        low: Number(sd.data) < 20
+      })).filter(e => e.lat && e.lng);
+    }
+    async function fetchChargingEvents() {
+      let diagnostics = await sdk.call("Get", { typeName: "Diagnostic", search: { code: "ChargingEvent" } });
+      let diagnosticId = diagnostics[0] ? diagnostics[0].id : null;
+      if (!diagnosticId) { chargingEvents = []; return; }
+      let { start, end } = getDateRange();
+      let statusData = await sdk.call("Get", {
+        typeName: "StatusData",
+        search: {
+          diagnosticSearch: { id: diagnosticId },
+          fromDate: start,
+          toDate: end
+        }
+      });
+      chargingEvents = statusData.map(sd => ({
+        lat: sd.latitude,
+        lng: sd.longitude,
+        device: devices.find(d => d.id === sd.device.id)?.name || sd.device.id,
+        deviceId: sd.device.id,
+        time: sd.dateTime,
+        station: sd.locationName || "Unknown"
+      })).filter(e => e.lat && e.lng);
+    }
+    async function fetchFaults() {
+      let { start, end } = getDateRange();
+      let faultData = await sdk.call("Get", {
+        typeName: "FaultData",
+        search: {
+          fromDate: start,
+          toDate: end
+        }
+      });
+      faults = faultData.map(f => ({
+        lat: f.latitude,
+        lng: f.longitude,
+        device: devices.find(d => d.id === f.device.id)?.name || f.device.id,
+        deviceId: f.device.id,
+        code: f.diagnostic.code,
+        description: f.diagnostic.description || "",
+        severity: f.severity || "info",
+        time: f.dateTime
+      })).filter(f => f.lat && f.lng);
+    }
+
+    // NO samples, just real fleet
     function renderDeviceOptions() {
       const sel = document.getElementById('deviceSelect');
       sel.innerHTML = '<option value="all">All Devices</option>';
-      demoData.devices.forEach(d =>
-        sel.innerHTML += `<option value="${d.id}">${d.name} (${d.type.toUpperCase()})</option>`
-      );
+      devices.forEach(d => {
+        let type = d.fuelType === "Electric" ? "ev" : "ice";
+        sel.innerHTML += `<option value="${d.id}">${d.name || d.serialNumber || d.id} (${type.toUpperCase()})</option>`;
+      });
     }
 
-    function renderMap() {
+    function filterAndRender() {
+      document.getElementById("no-fleet-msg").style.display = "none";
+      const deviceId = getDeviceFilter();
+      const evFilter = getEVFilter();
+      let deviceIds = devices
+        .filter(d => {
+          if (deviceId && d.id !== deviceId) return false;
+          if (evFilter === "ev" && d.fuelType !== "Electric") return false;
+          if (evFilter === "ice" && d.fuelType === "Electric") return false;
+          return true;
+        })
+        .map(d => d.id);
+
+      let filteredBattery = batteryEvents.filter(e => deviceIds.includes(e.deviceId));
+      let filteredCharging = chargingEvents.filter(e => deviceIds.includes(e.deviceId));
+      let filteredFaults = faults.filter(f => deviceIds.includes(f.deviceId));
+
+      if (!filteredBattery.length && !filteredCharging.length && !filteredFaults.length) {
+        clearMap();
+        showNoData();
+      } else {
+        renderMap(filteredBattery, filteredCharging, filteredFaults);
+        document.getElementById("nodata-msg").style.display = "none";
+      }
+      renderSummary(filteredBattery, filteredCharging, filteredFaults, deviceIds);
+    }
+
+    function renderMap(filteredBattery, filteredCharging, filteredFaults) {
       map.eachLayer(layer => { if (layer instanceof L.CircleMarker || layer instanceof L.Marker) map.removeLayer(layer); });
-      // Battery events
-      demoData.batteryEvents.forEach(e => {
+      filteredBattery.forEach(e => {
         const color = e.low ? '#ff3333' : '#00bfff';
-        const marker = L.circleMarker([e.lat, e.lng], { color, radius: 9, fillOpacity: 0.8 })
+        L.circleMarker([e.lat, e.lng], { color, radius: 9, fillOpacity: 0.8 })
           .addTo(map)
           .bindPopup(
             `<b>${e.device}</b><br>Battery: ${e.level}%<br>Time: ${e.time}${e.low ? '<br><span style="color:red">Low Battery</span>' : ''}`
           );
       });
-      // Charging events
-      demoData.chargingEvents.forEach(e => {
+      filteredCharging.forEach(e => {
         L.marker([e.lat, e.lng], { icon: L.divIcon({className: '', html: '<span style="color:#33ff33;font-size:1.5em;">⚡</span>'}) })
           .addTo(map)
           .bindPopup(`<b>${e.device}</b><br>Charged at: ${e.station}<br>Time: ${e.time}`);
       });
-      // Faults
-      demoData.faults.forEach(f => {
+      filteredFaults.forEach(f => {
         let color = f.severity === 'critical' ? '#dc3545' : (f.severity === 'warning' ? '#ffc107' : '#0dcaf0');
         L.circleMarker([f.lat, f.lng], { color, radius: 10, fillOpacity: 0.7 })
           .addTo(map)
@@ -139,41 +295,55 @@
             `<b>${f.device}</b><br>Fault: ${f.code}<br>${f.description}<br>Severity: <span style="color:${color}">${f.severity.toUpperCase()}</span><br>Time: ${f.time}`
           );
       });
-      // Fit map to markers if any
       const allCoords = [
-        ...demoData.batteryEvents.map(e => [e.lat, e.lng]),
-        ...demoData.chargingEvents.map(e => [e.lat, e.lng]),
-        ...demoData.faults.map(f => [f.lat, f.lng])
+        ...filteredBattery.map(e => [e.lat, e.lng]),
+        ...filteredCharging.map(e => [e.lat, e.lng]),
+        ...filteredFaults.map(f => [f.lat, f.lng])
       ];
       if (allCoords.length) map.fitBounds(allCoords);
     }
 
-    function renderSummary() {
-      document.getElementById('totalCharges').textContent = demoData.chargingEvents.length;
-      document.getElementById('avgBattery').textContent = (
-        demoData.batteryEvents.reduce((a, b) => a + b.level, 0) / demoData.batteryEvents.length
-      ).toFixed(1) + '%';
-      document.getElementById('lowBatteryCount').textContent = demoData.batteryEvents.filter(e => e.low).length;
-      document.getElementById('faultCount').textContent = demoData.faults.length;
-      document.getElementById('faultCriticalCount').textContent = demoData.faults.filter(f => f.severity === 'critical').length;
-      document.getElementById('evIceStats').textContent = 
-        `EV: ${demoData.batteryEvents.filter(e => e.device.startsWith('EV')).length} | ICE: ${demoData.faults.filter(f => f.device.startsWith('ICE')).length}`;
-      document.getElementById('chargingRecommendations').textContent = 
-        demoData.batteryEvents.filter(e => e.low).length > 0 ? 'Recommend charging at next opportunity.' : 'All EVs above threshold.';
-      // Fault list
-      let faults = demoData.faults.map(f =>
+    function renderSummary(filteredBattery, filteredCharging, filteredFaults, deviceIds) {
+      document.getElementById('totalCharges').textContent = filteredCharging.length || "-";
+      document.getElementById('avgBattery').textContent = (filteredBattery.length ?
+        (filteredBattery.reduce((a, b) => a + Number(b.level), 0) / filteredBattery.length).toFixed(1) + '%' : "-");
+      document.getElementById('lowBatteryCount').textContent = filteredBattery.filter(e => e.low).length || "-";
+      document.getElementById('faultCount').textContent = filteredFaults.length || "-";
+      document.getElementById('faultCriticalCount').textContent = filteredFaults.filter(f => f.severity === 'critical').length || "-";
+      let evCount = devices.filter(d => deviceIds.includes(d.id) && d.fuelType === "Electric").length;
+      let iceCount = devices.filter(d => deviceIds.includes(d.id) && d.fuelType !== "Electric").length;
+      document.getElementById('evIceStats').textContent = (evCount || iceCount) ? `EV: ${evCount} | ICE: ${iceCount}` : "-";
+      document.getElementById('chargingRecommendations').textContent =
+        filteredBattery.filter(e => e.low).length > 0 ? 'Recommend charging at next opportunity.' : (filteredBattery.length ? 'All EVs above threshold.' : "-");
+      let faultsList = filteredFaults.map(f =>
         `<div><b>${f.device}</b> [${f.code}] <span style="color:${f.severity === 'critical' ? '#dc3545' : (f.severity === 'warning' ? '#ffc107' : '#0dcaf0')}">${f.severity.toUpperCase()}</span><br>${f.description} (${f.time})</div>`
       ).join('');
-      document.getElementById('faultList').innerHTML = faults;
+      document.getElementById('faultList').innerHTML = faultsList || "";
     }
 
     function exportCSV() {
+      const deviceId = getDeviceFilter();
+      const evFilter = getEVFilter();
+      let deviceIds = devices
+        .filter(d => {
+          if (deviceId && d.id !== deviceId) return false;
+          if (evFilter === "ev" && d.fuelType !== "Electric") return false;
+          if (evFilter === "ice" && d.fuelType === "Electric") return false;
+          return true;
+        }).map(d => d.id);
+      let filteredBattery = batteryEvents.filter(e => deviceIds.includes(e.deviceId));
+      let filteredCharging = chargingEvents.filter(e => deviceIds.includes(e.deviceId));
+      let filteredFaults = faults.filter(f => deviceIds.includes(f.deviceId));
       let rows = [
         ['Type','Device','Lat','Lng','Time','Value','Description','Severity','Station']
       ];
-      demoData.batteryEvents.forEach(e => rows.push(['Battery', e.device, e.lat, e.lng, e.time, e.level, e.low ? 'Low Battery' : '', '', '']));
-      demoData.chargingEvents.forEach(e => rows.push(['Charge', e.device, e.lat, e.lng, e.time, '', '', '', e.station]));
-      demoData.faults.forEach(f => rows.push(['Fault', f.device, f.lat, f.lng, f.time, f.code, f.description, f.severity, '']));
+      filteredBattery.forEach(e => rows.push(['Battery', e.device, e.lat, e.lng, e.time, e.level, e.low ? 'Low Battery' : '', '', '']));
+      filteredCharging.forEach(e => rows.push(['Charge', e.device, e.lat, e.lng, e.time, '', '', '', e.station]));
+      filteredFaults.forEach(f => rows.push(['Fault', f.device, f.lat, f.lng, f.time, f.code, f.description, f.severity, '']));
+      if (rows.length === 1) {
+        alert('No data to export.');
+        return;
+      }
       let csv = rows.map(r => r.map(x => `"${x}"`).join(',')).join('\n');
       let a = document.createElement('a');
       a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
@@ -182,16 +352,19 @@
     }
 
     function exportMapImage() {
-      alert('Map export to image requires additional JS libraries (e.g., leaflet-image). Integrate as needed.');
+      alert('Map export to image requires leaflet-image or similar. Integrate as needed.');
     }
 
     document.getElementById('exportBtn').onclick = exportCSV;
     document.getElementById('exportMapBtn').onclick = exportMapImage;
-    document.getElementById('refreshBtn').onclick = () => { renderMap(); renderSummary(); };
+    document.getElementById('refreshBtn').onclick = authenticate;
+    document.getElementById('deviceSelect').onchange = filterAndRender;
+    document.getElementById('evFilter').onchange = filterAndRender;
+    document.getElementById('dataType').onchange = filterAndRender;
+    document.getElementById('startDate').onchange = authenticate;
+    document.getElementById('endDate').onchange = authenticate;
 
-    renderDeviceOptions();
-    renderMap();
-    renderSummary();
+    authenticate();
   </script>
 </body>
 </html>
