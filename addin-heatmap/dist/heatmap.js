@@ -1,19 +1,14 @@
 "use strict";
 geotab.addin.heatmap = function () {
-    // ULTRA-AGGRESSIVE OPTIMIZATION: Much smaller limits
+    // Core variables (keeping original structure)
     var v, h, m, p, y, E, w, i, l, r, c, D, t;
-    var I = 200; // Reduced from 1000 to 200 records per vehicle
-    var MAX_VEHICLES = 5; // Hard limit on vehicle selection
-    var MAX_TOTAL_RECORDS = 1000; // Global limit on total records processed
-    var CHUNK_SIZE = 2; // Smaller chunks (2 vehicles at a time)
-    var API_DELAY = 200; // Longer delay between API calls
+    var I = 5000; // ONLY CHANGE: Reduced from 50,000 to 5,000 for better performance
     
+    // NEW: Raw data functionality
     var rawDataTableDiv, showRawDataBtn, downloadRawDataBtn;
     var lastHeatmapPoints = [];
-    var dataCache = {}; // Simple caching system
-    var isProcessing = false;
-    var debounceTimer;
 
+    // Helper functions (exactly as original)
     var b = function (e) { l.innerHTML = e; };
     var B = function (e) { r.innerHTML = e; };
 
@@ -25,490 +20,196 @@ geotab.addin.heatmap = function () {
         return !0;
     }
 
-    function S(e) { return e.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,"); }
-    function N() { return Math.round((new Date - t) / 1e3); }
-
-    // Generate cache key for caching results
-    function getCacheKey(vehicles, fromDate, toDate, ruleId) {
-        return `${vehicles.sort().join(',')}_${fromDate}_${toDate}_${ruleId || 'location'}`;
+    function S(e) { 
+        return e.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,"); 
+    }
+    
+    function N() { 
+        return Math.round((new Date - t) / 1e3); 
     }
 
     var T = function (e) {
-        if (e) {
-            i.disabled = !0;
-            c.style.display = "block";
-            isProcessing = true;
-        } else {
-            setTimeout(function () { c.style.display = "none"; }, 300);
-            i.disabled = !1;
-            isProcessing = false;
-        }
+        e ? (i.disabled = !0, c.style.display = "block")
+          : (setTimeout(function () { c.style.display = "none" }, 600), i.disabled = !1)
     };
 
-    // Ultra-aggressive vehicle limit enforcement
-    var enforceVehicleLimit = function() {
-        var selected = 0;
-        for (var j = 0; j < y.options.length; j++) {
-            if (y.options[j].selected) selected++;
-        }
-        
-        if (selected > MAX_VEHICLES) {
-            // Auto-deselect excess vehicles
-            var count = 0;
-            for (var k = 0; k < y.options.length; k++) {
-                if (y.options[k].selected) {
-                    count++;
-                    if (count > MAX_VEHICLES) {
-                        y.options[k].selected = false;
-                    }
-                }
-            }
-            b(`⚠️ Auto-limited to ${MAX_VEHICLES} vehicles for optimal performance. Deselected ${selected - MAX_VEHICLES} vehicles.`);
-        }
-    };
-
-    // Clear all data and memory
-    var clearPreviousData = function() {
-        if (m) {
-            m.setLatLngs([]);
-        }
-        lastHeatmapPoints = [];
-        
-        // Clear old cache entries (keep only last 5)
-        var cacheKeys = Object.keys(dataCache);
-        if (cacheKeys.length > 5) {
-            for (var i = 0; i < cacheKeys.length - 5; i++) {
-                delete dataCache[cacheKeys[i]];
-            }
-        }
-    };
-
-    // Ultra-fast progress updates
-    var showProgress = function(message, percentage) {
-        if (percentage !== undefined) {
-            B(`${message} ${percentage}%`);
-        } else {
-            B(message);
-        }
-    };
-
-    // Minimal data sampling for ultra-fast rendering
-    var renderUltraFast = function(points, bounds) {
-        var maxRenderPoints = 500; // Even smaller limit for rendering
-        var displayPoints = points;
-        
-        if (points.length > maxRenderPoints) {
-            var step = Math.ceil(points.length / maxRenderPoints);
-            displayPoints = [];
-            for (var i = 0; i < points.length; i += step) {
-                displayPoints.push(points[i]);
-            }
-        }
-        
-        if (bounds.length > 0) {
-            h.fitBounds(bounds);
-        }
-        m.setLatLngs(displayPoints);
-        
-        return displayPoints.length;
-    };
-
-    // Ultra-aggressive chunked processing
-    var processUltraFast = function(vehicles, searchConfig, callback) {
-        var cacheKey = getCacheKey(vehicles, searchConfig.search.fromDate, searchConfig.search.toDate, searchConfig.search.ruleSearch?.id);
-        
-        // Check cache first
-        if (dataCache[cacheKey]) {
-            showProgress("Loading from cache...", 100);
-            setTimeout(function() {
-                callback(dataCache[cacheKey]);
-            }, 100);
-            return;
-        }
-        
-        var allResults = [];
-        var currentIndex = 0;
-        var totalRecordsProcessed = 0;
-        
-        function processNext() {
-            if (currentIndex >= vehicles.length || totalRecordsProcessed >= MAX_TOTAL_RECORDS) {
-                // Cache the results
-                dataCache[cacheKey] = allResults;
-                callback(allResults);
-                return;
-            }
-            
-            var endIndex = Math.min(currentIndex + CHUNK_SIZE, vehicles.length);
-            var chunkVehicles = vehicles.slice(currentIndex, endIndex);
-            
-            var progress = Math.round((currentIndex / vehicles.length) * 100);
-            showProgress("Processing vehicles...", progress);
-            
-            var calls = [];
-            for (var i = 0; i < chunkVehicles.length; i++) {
-                var callConfig = JSON.parse(JSON.stringify(searchConfig)); // Deep clone
-                callConfig.search.deviceSearch = { id: chunkVehicles[i] };
-                calls.push(["Get", callConfig]);
-            }
-            
-            v.multiCall(calls, function(results) {
-                // Check if we're hitting limits
-                for (var j = 0; j < results.length; j++) {
-                    totalRecordsProcessed += results[j].length;
-                    if (totalRecordsProcessed >= MAX_TOTAL_RECORDS) {
-                        results[j] = results[j].slice(0, MAX_TOTAL_RECORDS - (totalRecordsProcessed - results[j].length));
-                        break;
-                    }
-                }
-                
-                allResults = allResults.concat(results);
-                currentIndex = endIndex;
-                
-                setTimeout(processNext, API_DELAY);
-            }, function(error) {
-                b("⚠️ API Error: " + error + ". Try reducing the date range or number of vehicles.");
-                T(false);
-            });
-        }
-        
-        processNext();
-    };
-
-    // Ultra-fast search with aggressive optimization
     var d = function () {
-        if (isProcessing) {
-            b("⏳ Please wait for current operation to complete.");
-            return;
-        }
-        
-        clearPreviousData();
-        
-        // Enforce vehicle limits
-        enforceVehicleLimit();
-        
-        void 0 !== m && h.removeLayer(m);
-        m = L.heatLayer({
-            radius: { value: 20, absolute: !1 }, // Smaller radius for faster rendering
-            opacity: .8,
-            gradient: { .4: "blue", .6: "cyan", .7: "lime", .8: "yellow", 1: "red" }
-        }).addTo(h);
-        
-        // Count selected vehicles
-        D = 0;
-        for (var e = 0; e < y.options.length; e++) {
-            if (y.options[e].selected) D++;
-        }
-        
-        if (D === 0) {
-            b("❌ Please select at least one vehicle.");
-            return;
-        }
-        
-        if (D > MAX_VEHICLES) {
-            b(`❌ Maximum ${MAX_VEHICLES} vehicles allowed for optimal performance.`);
-            return;
-        }
-        
-        // Check date range
-        var fromDate = new Date(E.value);
-        var toDate = new Date(w.value);
-        var hoursDiff = (toDate - fromDate) / (1000 * 60 * 60);
-        
-        if (hoursDiff > 24) {
-            if (!confirm(`⚠️ Date range is ${Math.round(hoursDiff)} hours. This may be slow. Continue?\n\nTip: Try a range under 8 hours for best performance.`)) {
-                return;
-            }
-        }
-        
-        t = new Date;
-        showProgress("Starting ultra-fast search...", 0);
-        T(!0);
-        
-        // Determine search type
-        if (p.disabled) {
-            ultraFastLocationSearch();
-        } else {
-            ultraFastExceptionSearch();
-        }
+        void 0 !== m && h.removeLayer(m),
+            m = L.heatLayer({
+                radius: { value: 24, absolute: !1 },
+                opacity: .7,
+                gradient: { .45: "rgb(0,0,255)", .55: "rgb(0,255,255)", .65: "rgb(0,255,0)", .95: "yellow", 1: "rgb(255,0,0)" }
+            }).addTo(h);
+        for (var e = D = 0; e < y.options.length; e++)
+            y.options[e].selected && D++;
+        0 !== D ? (t = new Date, !0 === p.disabled ? n() : o()) : b("Please select at least one vehicle from the list and try again.");
     };
 
-    // Ultra-optimized location search
-    var ultraFastLocationSearch = function() {
-        var selectedVehicles = [];
-        for (var i = 0; i < y.options.length; i++) {
-            if (y.options[i].selected) {
-                selectedVehicles.push(y.options[i].value || y.options[i].text);
-            }
-        }
-        
-        var searchConfig = {
-            typeName: "LogRecord",
-            resultsLimit: I,
-            search: {
-                fromDate: new Date(E.value).toISOString(),
-                toDate: new Date(w.value).toISOString()
-            }
-        };
-        
-        processUltraFast(selectedVehicles, searchConfig, function(allResults) {
-            if (x(allResults)) {
-                b("📍 No location data found. Try a different date range.");
-                T(!1);
-                return;
-            }
-            
-            showProgress("Processing location data...", 90);
-            
-            var allPoints = [], bounds = [], totalRecords = 0;
-            
-            for (var i = 0; i < allResults.length; i++) {
-                var records = allResults[i];
-                for (var j = 0; j < records.length && totalRecords < MAX_TOTAL_RECORDS; j++) {
-                    var record = records[j];
-                    if (record.latitude !== 0 && record.longitude !== 0) {
-                        allPoints.push({
-                            lat: record.latitude,
-                            lon: record.longitude,
-                            timestamp: record.dateTime,
-                            value: 1
-                        });
-                        bounds.push(new L.LatLng(record.latitude, record.longitude));
-                        totalRecords++;
+    // Location history search (keeping original logic exactly)
+    var n = function () {
+        y.value;
+        for (var e, t = [], n = y.options, o = 0, a = n.length; o < a; o++)
+            (e = n[o]).selected && t.push(e.value || e.text);
+        var i = E.value, l = w.value;
+        b(""), B("");
+        if (null !== t && "" !== i && "" !== l) {
+            T(!0);
+            for (var r = new Date(i).toISOString(),
+                c = new Date(l).toISOString(),
+                d = [], u = 0, s = t.length; u < s; u++)
+                d.push(["Get", {
+                    typeName: "LogRecord",
+                    resultsLimit: I,
+                    search: {
+                        deviceSearch: { id: t[u] },
+                        fromDate: r,
+                        toDate: c
                     }
+                }]);
+            v.multiCall(d, function (e) {
+                if (x(e)) return b("No data to display"), void T(!1);
+                for (var t = [], n = [], o = 0, a = 0, i = [], l = 0, r = e.length; l < r; l++) {
+                    i = e[l];
+                    for (var c = 0; c < i.length; c++)
+                        0 === i[c].latitude && 0 === i[c].longitude ||
+                        (t.push({ lat: i[c].latitude, lon: i[c].longitude, timestamp: i[c].dateTime, value: 1 }),
+                            n.push(new L.LatLng(i[c].latitude, i[c].longitude)), o++);
+                    i.length >= I && a++;
                 }
-            }
-            
-            lastHeatmapPoints = allPoints;
-            
-            if (allPoints.length > 0) {
-                var displayedPoints = renderUltraFast(allPoints, bounds);
-                var message = `✅ Displaying ${S(displayedPoints)} points from ${S(totalRecords)} records (${D} vehicles) [${N()}s]`;
-                if (displayedPoints < totalRecords) {
-                    message += ` - Sampled for performance`;
-                }
-                B(message);
                 
-                if (totalRecords >= MAX_TOTAL_RECORDS) {
-                    b(`ℹ️ Hit ${S(MAX_TOTAL_RECORDS)} record limit. Reduce date range for complete data.`);
-                }
-            } else {
-                b("📍 No valid coordinates found.");
-            }
-            
-            T(!1);
-        });
-    };
-
-    // Ultra-optimized exception search
-    var ultraFastExceptionSearch = function() {
-        var selectedVehicles = [];
-        for (var i = 0; i < y.options.length; i++) {
-            if (y.options[i].selected) {
-                selectedVehicles.push(y.options[i].value || y.options[i].text);
-            }
+                // NEW: Store data for raw table
+                lastHeatmapPoints = t;
+                
+                0 < t.length ?
+                    (h.fitBounds(n),
+                        m.setLatLngs(t),
+                        B("Displaying ".concat(S(o), " combined log records for the\n        ").concat(S(D), " selected vehicles. [").concat(N(), " sec]")),
+                        0 < a && b("Note: Not all results are displayed because the result limit of \n          ".concat(S(I), " was exceeded for \n          ").concat(S(a), " of the selected vehicles.")))
+                    : b("No data to display"), T(!1)
+            }, function (e) { alert(e), T(!1) })
         }
-        
-        var ruleId = p.options[p.selectedIndex].value;
-        var ruleName = p.options[p.selectedIndex].text;
-        
-        var searchConfig = {
-            typeName: "ExceptionEvent",
-            resultsLimit: Math.min(I, 100), // Even smaller limit for exceptions
-            search: {
-                ruleSearch: { id: ruleId },
-                fromDate: new Date(E.value).toISOString(),
-                toDate: new Date(w.value).toISOString()
-            }
-        };
-        
-        processUltraFast(selectedVehicles, searchConfig, function(exceptionResults) {
-            if (x(exceptionResults)) {
-                b("⚠️ No exceptions found for this rule and date range.");
-                T(!1);
-                return;
-            }
-            
-            showProgress("Processing exceptions...", 50);
-            
-            // Simplified exception processing - take only first few exceptions
-            var logCalls = [];
-            var totalExceptions = 0;
-            var maxExceptions = 50; // Limit total exceptions processed
-            
-            for (var i = 0; i < exceptionResults.length && totalExceptions < maxExceptions; i++) {
-                var exceptions = exceptionResults[i];
-                for (var j = 0; j < exceptions.length && totalExceptions < maxExceptions; j++) {
-                    totalExceptions++;
-                    logCalls.push(["Get", {
-                        typeName: "LogRecord",
-                        resultsLimit: 10, // Very small limit for exception logs
-                        search: {
-                            deviceSearch: { id: exceptions[j].device.id },
-                            fromDate: exceptions[j].activeFrom,
-                            toDate: exceptions[j].activeTo
-                        }
-                    }]);
-                }
-            }
-            
-            showProgress("Getting exception locations...", 75);
-            
-            // Process in small batches
-            var batchSize = 5;
-            var allLogResults = [];
-            var currentBatch = 0;
-            
-            function processBatch() {
-                var start = currentBatch * batchSize;
-                var end = Math.min(start + batchSize, logCalls.length);
-                var batchCalls = logCalls.slice(start, end);
-                
-                if (batchCalls.length === 0) {
-                    processLogResults(allLogResults);
-                    return;
-                }
-                
-                v.multiCall(batchCalls, function(results) {
-                    allLogResults = allLogResults.concat(results);
-                    currentBatch++;
-                    
-                    var progress = Math.round(75 + (currentBatch / Math.ceil(logCalls.length / batchSize)) * 20);
-                    showProgress("Processing exception locations...", progress);
-                    
-                    setTimeout(processBatch, API_DELAY);
-                }, function(error) {
-                    b("⚠️ Error getting exception locations: " + error);
-                    T(false);
-                });
-            }
-            
-            function processLogResults(logResults) {
-                if (x(logResults)) {
-                    b("⚠️ No location data found for exceptions.");
-                    T(!1);
-                    return;
-                }
-                
-                var allPoints = [], bounds = [], totalRecords = 0;
-                
-                for (var i = 0; i < logResults.length; i++) {
-                    var records = logResults[i];
-                    for (var j = 0; j < records.length; j++) {
-                        var record = records[j];
-                        if (record.latitude !== 0 && record.longitude !== 0) {
-                            allPoints.push({
-                                lat: record.latitude,
-                                lon: record.longitude,
-                                timestamp: record.dateTime,
-                                value: 1
-                            });
-                            bounds.push(new L.LatLng(record.latitude, record.longitude));
-                            totalRecords++;
-                        }
-                    }
-                }
-                
-                lastHeatmapPoints = allPoints;
-                
-                if (allPoints.length > 0) {
-                    var displayedPoints = renderUltraFast(allPoints, bounds);
-                    B(`✅ Showing ${S(displayedPoints)} points from ${S(totalExceptions)} '${ruleName}' exceptions (${D} vehicles) [${N()}s]`);
-                    
-                    if (totalExceptions >= maxExceptions) {
-                        b(`ℹ️ Limited to first ${maxExceptions} exceptions for performance. Reduce date range for more.`);
-                    }
-                } else {
-                    b("⚠️ No valid coordinates found for exceptions.");
-                }
-                
-                T(!1);
-            }
-            
-            processBatch();
-        });
     };
 
-    // Ultra-aggressive debounced search
-    var debouncedSearch = function() {
-        if (isProcessing) {
-            b("⏳ Please wait for current operation to complete.");
-            return;
+    // Exception history search (keeping original logic exactly)
+    var o = function () {
+        y.value;
+        for (var e, t = p.options[p.selectedIndex].value, g = p.options[p.selectedIndex].text, n = [], o = y.options, a = 0, i = o.length; a < i; a++)
+            (e = o[a]).selected && n.push(e.value || e.text);
+        var l = E.value, r = w.value;
+        b(""), B("");
+        if (null !== n && null !== t && "" !== l && "" !== r) {
+            T(!0);
+            for (var c = new Date(l).toISOString(),
+                d = new Date(r).toISOString(),
+                u = [], s = 0, f = n.length; s < f; s++)
+                u.push(["Get", {
+                    typeName: "ExceptionEvent",
+                    resultsLimit: I,
+                    search: {
+                        deviceSearch: { id: n[s] },
+                        ruleSearch: { id: t },
+                        fromDate: c,
+                        toDate: d
+                    }
+                }]);
+            v.multiCall(u, function (e) {
+                if (x(e)) return b("No data to display"), void T(!1);
+                for (var u = 0, s = 0, t = [], n = 0, o = e.length; n < o; n++) {
+                    for (var a = e[n], i = 0; i < a.length; i++)
+                        u++, t.push(["Get", {
+                            typeName: "LogRecord",
+                            resultsLimit: I,
+                            search: {
+                                deviceSearch: { id: a[i].device.id },
+                                fromDate: a[i].activeFrom,
+                                toDate: a[i].activeTo
+                            }
+                        }]);
+                    a.length >= I && s++;
+                }
+                v.multiCall(t, function (e) {
+                    if (x(e)) return b("No data to display"), void T(!1);
+                    for (var t = [], n = [], o = 0, a = 0, i = 0, l = e.length; i < l; i++) {
+                        for (var r = e[i], c = 0; c < r.length; c++)
+                            0 === r[c].latitude && 0 === r[c].longitude ||
+                            (t.push({ lat: r[c].latitude, lon: r[c].longitude, timestamp: r[c].dateTime, value: 1 }),
+                                n.push(new L.LatLng(r[c].latitude, r[c].longitude)), o++);
+                        r.length >= I && a++;
+                    }
+                    
+                    // NEW: Store data for raw table
+                    lastHeatmapPoints = t;
+                    
+                    if (0 < t.length) {
+                        h.fitBounds(n),
+                            m.setLatLngs(t),
+                            B("Displaying ".concat(S(o), " combined log records associated with the\n          ").concat(S(u), " '").concat(g, "' rule exceptions found for the \n          ").concat(S(D), " selected vehicles. [").concat(N(), " sec]")),
+                            0 < s || 0 < a && (function () {
+                                var d = "Note: Not all results are displayed because";
+                                s && (d += " the result limit of \n              ".concat(S(I), " was exceeded for '").concat(g, "' rule exceptions"));
+                                0 < s && 0 < a && (d += " and");
+                                a && (d += " the result limit of \n              ".concat(S(I), " was exceeded for \n              ").concat(S(a), " of the selected vehicles."));
+                                b(d += ".");
+                            })(), T(!1)
+                    } else b("No data to display")
+                }, function (e) { alert(e), T(!1) })
+            }, function (e) { alert(e), T(!1) })
         }
-        
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(function() {
-            d();
-        }, 150); // Shorter debounce
     };
 
-    // Initialization with ultra-conservative defaults
+    // Initialization (keeping original logic, only changing default date range)
     var a = function (e) {
         h = new L.Map("heatmap-map", {
-            center: new L.LatLng(e.latitude, e.longitude), 
-            zoom: 13,
-            preferCanvas: true // Better performance for large datasets
-        });
+            center: new L.LatLng(e.latitude, e.longitude), zoom: 13
+        }),
+            L.tileLayer("http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                subdomains: ["a", "b", "c"]
+            }).addTo(h),
+            p = document.getElementById("exceptionTypes"),
+            y = document.getElementById("vehicles"),
+            E = document.getElementById("from"),
+            w = document.getElementById("to"),
+            i = document.getElementById("showHeatMap"),
+            l = document.getElementById("error"),
+            r = document.getElementById("message"),
+            c = document.getElementById("loading");
         
-        L.tileLayer("http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            subdomains: ["a", "b", "c"]
-        }).addTo(h);
+        // OPTIMIZED: Better default date range (4 hours instead of full day)
+        var t = new Date;
+        var fourHoursAgo = new Date(t.getTime() - 4 * 60 * 60 * 1000);
+        var n = t.getDate(), o = t.getMonth() + 1, a = t.getFullYear();
+        var startHour = fourHoursAgo.getHours(), currentHour = t.getHours();
         
-        p = document.getElementById("exceptionTypes");
-        y = document.getElementById("vehicles");
-        E = document.getElementById("from");
-        w = document.getElementById("to");
-        i = document.getElementById("showHeatMap");
-        l = document.getElementById("error");
-        r = document.getElementById("message");
-        c = document.getElementById("loading");
+        n < 10 && (n = "0" + n), o < 10 && (o = "0" + o);
+        if (startHour < 10) startHour = "0" + startHour;
+        if (currentHour < 10) currentHour = "0" + currentHour;
         
-        // Ultra-conservative default: last 2 hours only
-        var now = new Date();
-        var twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        E.value = a + "-" + o + "-" + n + "T" + startHour + ":00",
+        w.value = a + "-" + o + "-" + n + "T" + currentHour + ":00",
         
-        var year = now.getFullYear();
-        var month = String(now.getMonth() + 1).padStart(2, '0');
-        var day = String(now.getDate()).padStart(2, '0');
-        var currentHour = String(now.getHours()).padStart(2, '0');
-        var startHour = String(twoHoursAgo.getHours()).padStart(2, '0');
-        
-        E.value = `${year}-${month}-${day}T${startHour}:00`;
-        w.value = `${year}-${month}-${day}T${currentHour}:59`;
-        
-        // Event listeners
-        document.getElementById("visualizeByLocationHistory").addEventListener("click", function (e) { 
-            p.disabled = !0;
-        });
-        
-        document.getElementById("visualizeByExceptionHistory").addEventListener("click", function (e) { 
-            p.disabled = !1;
-        });
-        
-        // Add vehicle selection limit enforcement
-        y.addEventListener("change", function(e) {
-            enforceVehicleLimit();
-        });
-        
-        document.getElementById("showHeatMap").addEventListener("click", function (e) { 
-            e.preventDefault();
-            debouncedSearch();
-        });
+        // Event listeners (exactly as original)
+        document.getElementById("visualizeByLocationHistory").addEventListener("click", function (e) { p.disabled = !0 }),
+        document.getElementById("visualizeByExceptionHistory").addEventListener("click", function (e) { p.disabled = !1 }),
+        document.getElementById("exceptionTypes").addEventListener("change", function (e) { e.preventDefault() }),
+        document.getElementById("vehicles").addEventListener("change", function (e) { e.preventDefault() }),
+        document.getElementById("from").addEventListener("change", function (e) { e.preventDefault() }),
+        document.getElementById("to").addEventListener("change", function (e) { e.preventDefault() }),
+        document.getElementById("showHeatMap").addEventListener("click", function (e) { e.preventDefault(), d() });
 
-        // Raw data functionality (simplified)
+        // NEW: Raw data table functionality
         rawDataTableDiv = document.getElementById("rawDataTable");
         showRawDataBtn = document.getElementById("showRawDataBtn");
         downloadRawDataBtn = document.getElementById("downloadRawDataBtn");
 
         if (showRawDataBtn) {
             showRawDataBtn.addEventListener('click', function () {
-                if (!lastHeatmapPoints.length) {
-                    b("📊 No data available. Generate a heatmap first.");
-                    return;
-                }
-                
                 if (rawDataTableDiv.style.display === 'none' || rawDataTableDiv.style.display === '') {
-                    renderSimpleTable(lastHeatmapPoints);
+                    if (lastHeatmapPoints.length === 0) {
+                        b("No data available. Please generate a heatmap first.");
+                        return;
+                    }
+                    renderRawDataTable(lastHeatmapPoints);
                     rawDataTableDiv.style.display = 'block';
                     this.textContent = 'Hide Raw Data';
                 } else {
@@ -521,112 +222,97 @@ geotab.addin.heatmap = function () {
         if (downloadRawDataBtn) {
             downloadRawDataBtn.addEventListener('click', function () {
                 if (!lastHeatmapPoints.length) {
-                    b("💾 No data available. Generate a heatmap first.");
+                    b("No data available. Please generate a heatmap first.");
                     return;
                 }
-                
-                try {
-                    const csvHeader = 'Latitude,Longitude,Timestamp';
-                    const csvRows = lastHeatmapPoints.slice(0, 1000).map(r => 
-                        `${r.lat || ''},${r.lon || ''},${r.timestamp || ''}`
-                    );
-                    const csv = csvHeader + '\n' + csvRows.join('\n');
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `heatmap_data_${new Date().toISOString().slice(0,10)}.csv`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    B("✅ CSV downloaded successfully!");
-                } catch (error) {
-                    b("❌ Error creating download: " + error.message);
-                }
+                const csvHeader = ['Latitude', 'Longitude', 'Timestamp'];
+                const csvRows = lastHeatmapPoints.map(r => [
+                    r.lat || r.latitude || '',
+                    r.lon || r.lng || r.longitude || '',
+                    r.timestamp || r.dateTime || ''
+                ]);
+                const csv = [csvHeader, ...csvRows].map(e => e.join(',')).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'heatmap_data_' + new Date().toISOString().slice(0,10) + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             });
         }
     };
 
-    // Simplified table rendering
-    function renderSimpleTable(data) {
+    // NEW: Simple table renderer
+    function renderRawDataTable(data) {
         if (!data.length) {
             rawDataTableDiv.innerHTML = '<p>No data available.</p>';
             return;
         }
         
-        var maxRows = 200; // Very limited for performance
-        var displayData = data.slice(0, maxRows);
+        var maxRows = 1000; // Limit for performance
+        var displayData = data.length > maxRows ? data.slice(0, maxRows) : data;
         
-        var html = `<p><strong>Showing ${displayData.length} of ${data.length} records</strong></p>`;
-        html += '<table style="width:100%; border-collapse:collapse; font-size:11px;">';
-        html += '<thead><tr style="background:#f0f0f0;"><th style="border:1px solid #ddd; padding:4px;">Lat</th><th style="border:1px solid #ddd; padding:4px;">Lng</th><th style="border:1px solid #ddd; padding:4px;">Time</th></tr></thead><tbody>';
+        var html = '<div style="margin-bottom: 10px;">';
+        if (data.length > maxRows) {
+            html += '<p><strong>Showing first ' + maxRows + ' of ' + S(data.length) + ' total records</strong></p>';
+        } else {
+            html += '<p><strong>Total records: ' + S(data.length) + '</strong></p>';
+        }
+        html += '</div>';
         
-        displayData.forEach(function(pt) {
-            html += `<tr><td style="border:1px solid #ddd; padding:2px;">${(pt.lat || '').toString().substring(0,8)}</td><td style="border:1px solid #ddd; padding:2px;">${(pt.lon || '').toString().substring(0,8)}</td><td style="border:1px solid #ddd; padding:2px;">${(pt.timestamp || '').substring(11,19)}</td></tr>`;
-        });
+        html += '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+        html += '<thead><tr style="background-color: #f0f0f0;"><th style="border: 1px solid #ddd; padding: 8px;">Latitude</th><th style="border: 1px solid #ddd; padding: 8px;">Longitude</th><th style="border: 1px solid #ddd; padding: 8px;">Timestamp</th></tr></thead>';
+        html += '<tbody>';
+        
+        for (var i = 0; i < displayData.length; i++) {
+            var pt = displayData[i];
+            html += '<tr>';
+            html += '<td style="border: 1px solid #ddd; padding: 4px;">' + (pt.lat || pt.latitude || '') + '</td>';
+            html += '<td style="border: 1px solid #ddd; padding: 4px;">' + (pt.lon || pt.lng || pt.longitude || '') + '</td>';
+            html += '<td style="border: 1px solid #ddd; padding: 4px;">' + (pt.timestamp || pt.dateTime || '') + '</td>';
+            html += '</tr>';
+        }
         
         html += '</tbody></table>';
         rawDataTableDiv.innerHTML = html;
     }
 
+    // Sorting function (exactly as original)
     var u = function (e, t) {
         return (e = e.name.toLowerCase()) === (t = t.name.toLowerCase()) ? 0 : t < e ? 1 : -1;
     };
 
+    // Return object (exactly as original)
     return {
         initialize: function (e, t, n) {
-            v = e;
-            "geolocation" in navigator
-                ? navigator.geolocation.getCurrentPosition(function (e) { a(e.coords); n(); })
+            v = e, "geolocation" in navigator
+                ? navigator.geolocation.getCurrentPosition(function (e) { a(e.coords), n(); })
                 : (a({ longitude: -79.709441, latitude: 43.434497 }), n());
         },
         focus: function (e, t) {
-            v = e;
-            
-            // Load vehicles with smaller limit
-            v.call("Get", {
+            (v = e).call("Get", {
                 typeName: "Device",
-                resultsLimit: 1000, // Reduced from 50k
+                resultsLimit: 5e4,
                 search: { fromDate: (new Date).toISOString(), groups: t.getGroupFilter() }
             }, function (e) {
-                if (e && e.length > 0) {
-                    e.sort(u);
-                    e.forEach(function (e) {
+                !e || e.length < 0 || (e.sort(u), e.forEach(function (e) {
+                    var t = new Option;
+                    t.text = e.name, t.value = e.id, y.add(t);
+                }));
+            }, b),
+                v.call("Get", {
+                    typeName: "Rule",
+                    resultsLimit: 5e4
+                }, function (e) {
+                    !e || e.length < 0 || (e.sort(u), e.forEach(function (e) {
                         var t = new Option;
-                        t.text = e.name;
-                        t.value = e.id;
-                        y.add(t);
-                    });
-                    
-                    // Show vehicle limit warning
-                    if (e.length > MAX_VEHICLES) {
-                        b(`ℹ️ ${e.length} vehicles loaded. Select max ${MAX_VEHICLES} for optimal performance.`);
-                    }
-                }
-            }, function(error) {
-                b("❌ Error loading vehicles: " + error);
-            });
-            
-            // Load rules with smaller limit
-            v.call("Get", {
-                typeName: "Rule",
-                resultsLimit: 1000 // Reduced from 50k
-            }, function (e) {
-                if (e && e.length > 0) {
-                    e.sort(u);
-                    e.forEach(function (e) {
-                        var t = new Option;
-                        t.text = e.name;
-                        t.value = e.id;
-                        p.add(t);
-                    });
-                }
-            }, function(error) {
-                b("❌ Error loading rules: " + error);
-            });
-            
-            setTimeout(function () { h.invalidateSize(); }, 200);
+                        t.text = e.name, t.value = e.id, p.add(t);
+                    }));
+                }, b),
+                setTimeout(function () { h.invalidateSize() }, 200);
         }
     };
 };
