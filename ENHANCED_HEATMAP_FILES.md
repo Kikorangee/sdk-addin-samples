@@ -1,3 +1,24 @@
+# 📦 Enhanced Heat Map Files - Download Instructions
+
+Since you're having trouble locating the files, I'll provide you with the complete file contents that you can copy and save to your local computer.
+
+## 📋 **Files You Need**
+
+1. **HTML File**: `heatmap.html`
+2. **CSS Files**: 
+   - `main.css`
+   - `spinner.css`
+3. **JavaScript File**: `main.js`
+4. **Image File**: `icon.svg`
+
+---
+
+## 📄 **File Contents**
+
+### **1. heatmap.html**
+Path: `addin-heatmap/dist/heatmap.html`
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 
@@ -137,3 +158,11 @@
 </body>
 
 </html>
+```
+
+---
+
+### **2. styles/main.css**
+Path: `addin-heatmap/dist/styles/main.css`
+
+I'll continue with the rest of the files in the next message due to length limitations.

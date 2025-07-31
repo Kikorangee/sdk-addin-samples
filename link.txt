@@ -1,0 +1,1 @@
+https://github.com/Kikorangee/sdk-addin-samples/tree/master/addin-heatmap/dist

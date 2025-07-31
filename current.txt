@@ -1,0 +1,16 @@
+{
+    "name": "Heat Map - Enhanced",
+    "supportEmail": "support@geotab.com",
+    "version": "2.0.0",
+    "items": [
+        {
+            "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html",
+            "path": "ActivityLink/",
+            "menuName": {
+                "en": "Heat Map"
+            },
+            "icon": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/images/icon.svg"
+        }
+    ],
+    "isSigned": false
+}
