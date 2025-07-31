@@ -19,13 +19,12 @@
 <body>
     <h1>Heat Map</h1>
     <div id="controls">
-        <!-- Your existing date pickers and filters can go here -->
+        <label for="datePicker">Select Date Range:</label>
+        <input id="datePicker" type="text" placeholder="Choose date range" style="width:200px; margin-left:8px;">
         <button id="showRawDataBtn">Show Raw Data</button>
         <button id="downloadRawDataBtn">Download CSV</button>
     </div>
-    <div id="heatMapCanvas">
-        <!-- Your existing heatmap rendering code should target this div -->
-    </div>
+    <div id="heatMapCanvas"></div>
     <div id="rawDataTable"></div>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="heatmap.js"></script>
