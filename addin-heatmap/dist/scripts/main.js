@@ -1045,4 +1045,3 @@ geotab.addin.heatmap = () => {
     }
   };
 
-};
