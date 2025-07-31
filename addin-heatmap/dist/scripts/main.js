@@ -1045,4 +1045,7 @@ geotab.addin.heatmap = () => {
     }
   };
 
+<<<<<<< HEAD
 };
+=======
+>>>>>>> 26371d7d6d69903b2ccb4d5ca802880dd7dc4d1c
