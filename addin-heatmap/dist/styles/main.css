@@ -1,1 +1,341 @@
-@-webkit-keyframes spinner_1{0%{top:20px;height:160px}50%{top:60px;height:80px}100%{top:60px;height:80px}}@keyframes spinner_1{0%{top:20px;height:160px}50%{top:60px;height:80px}100%{top:60px;height:80px}}@-webkit-keyframes spinner_2{0%{top:30px;height:140px}50%{top:60px;height:80px}100%{top:60px;height:80px}}@keyframes spinner_2{0%{top:30px;height:140px}50%{top:60px;height:80px}100%{top:60px;height:80px}}@-webkit-keyframes spinner_3{0%{top:40px;height:120px}50%{top:60px;height:80px}100%{top:60px;height:80px}}@keyframes spinner_3{0%{top:40px;height:120px}50%{top:60px;height:80px}100%{top:60px;height:80px}}#heatmap .spinner{position:relative}#heatmap .spinner div{position:absolute;width:30px}#heatmap .spinner div:nth-child(1){left:35px;background:#fff;-webkit-animation:spinner_1 1s cubic-bezier(0,.5,.5,1) infinite;animation:spinner_1 1s cubic-bezier(0,.5,.5,1) infinite;-webkit-animation-delay:-.2s;animation-delay:-.2s}#heatmap .spinner div:nth-child(2){left:85px;background:#fff;-webkit-animation:spinner_2 1s cubic-bezier(0,.5,.5,1) infinite;animation:spinner_2 1s cubic-bezier(0,.5,.5,1) infinite;-webkit-animation-delay:-.1s;animation-delay:-.1s}#heatmap .spinner div:nth-child(3){left:135px;background:#fff;-webkit-animation:spinner_3 1s cubic-bezier(0,.5,.5,1) infinite;animation:spinner_3 1s cubic-bezier(0,.5,.5,1) infinite}#heatmap #heatmap-map{height:calc(100% + 40px)}#heatmap .cssGrid,#heatmap .cssGrid>div{height:100%}#heatmap .checkmateFormEditField{width:calc(100% - 1em);max-width:100%}#heatmap select.checkmateFormEditField{width:100%}#heatmap label{padding-top:1em;display:block;padding-bottom:.5em}#heatmap #controls{height:100%;padding:20px;background-color:#e5f2fa;border-right:1px solid #ddd}#heatmap #loading{-webkit-transform:scale(.5);transform:scale(.5)}#heatmap #loading>div{background:#2c7ab1}#heatmap #error{margin-top:10px;color:#c00}#heatmap #message{margin-top:10px;color:#0a49f5}#heatmap ol{padding-left:0}#heatmap #disclaimer{background-color:#e5f7fd;border:1px solid #e5f7fd;color:#25477b;fill:#25477b;-webkit-box-align:center;-ms-flex-align:center;align-items:center;width:-webkit-fit-content;width:-moz-fit-content;width:fit-content;border-radius:6px;padding:4px 6px;position:relative;display:block}#heatmap #disclaimerLabel{font-size:14px;line-height:16px;padding-right:5px;color:#25477b;fill:#25477b;font-weight:600;letter-spacing:2px;margin-right:0;text-transform:uppercase;-webkit-touch-callout:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}
+/* Modern CSS Reset and Base Styles */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+    color: #334155;
+    line-height: 1.6;
+    font-size: 14px;
+}
+
+/* Main Container */
+#heatmap {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#heatmap-map {
+    height: calc(100% + 40px);
+    border-radius: 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Grid Layout */
+.cssGrid,
+.cssGrid > div {
+    height: 100%;
+}
+
+.cssGrid {
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 60px);
+}
+
+/* Controls Panel */
+#controls {
+    height: 100%;
+    padding: 24px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-right: 1px solid #e2e8f0;
+    overflow-y: auto;
+    min-width: 320px;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+}
+
+#controls h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+#controls p {
+    color: #64748b;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+}
+
+/* Form Elements */
+.checkmateFormEditField {
+    width: 100%;
+    max-width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background-color: #ffffff;
+    transition: all 0.2s ease;
+}
+
+.checkmateFormEditField:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.checkmateFormEditField:hover {
+    border-color: #9ca3af;
+}
+
+select.checkmateFormEditField {
+    width: 100%;
+    cursor: pointer;
+}
+
+select.checkmateFormEditField:disabled {
+    background-color: #f3f4f6;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+/* Labels */
+label {
+    display: block;
+    font-weight: 500;
+    color: #374151;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+label:first-of-type {
+    margin-top: 0;
+}
+
+/* Radio Buttons */
+input[type="radio"] {
+    margin-right: 0.5rem;
+    margin-left: 0.25rem;
+    transform: scale(1.1);
+    accent-color: #3b82f6;
+}
+
+/* Submit Button */
+input[type="submit"] {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 1.5rem;
+    font-family: inherit;
+}
+
+input[type="submit"]:hover:not(:disabled) {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+input[type="submit"]:active {
+    transform: translateY(0);
+}
+
+input[type="submit"]:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Loading Spinner */
+#loading {
+    transform: scale(0.6);
+    margin: 1rem auto;
+}
+
+#loading > div {
+    background: #3b82f6;
+}
+
+/* Error and Message Styling */
+#error {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #dc2626;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+#message {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    color: #1d4ed8;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+/* Instructions */
+#controls h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 2rem 0 1rem 0;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+ol {
+    padding-left: 1.25rem;
+    margin: 0;
+}
+
+ol li {
+    margin-bottom: 0.5rem;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+ol li i {
+    font-style: italic;
+    color: #3b82f6;
+}
+
+/* Disclaimer */
+#disclaimer {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border: 1px solid #bae6fd;
+    color: #0c4a6e;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+#disclaimerLabel {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #0c4a6e;
+    margin-bottom: 0.5rem;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    user-select: none;
+}
+
+#disclaimer p {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #075985;
+}
+
+/* EV Data Checkbox Styling */
+#includeEVData {
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+    transform: scale(1.2);
+    accent-color: #3b82f6;
+}
+
+#includeEVData + small {
+    font-style: italic;
+    line-height: 1.4;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+/* Enhanced styling for EV data visualization */
+.ev-data-section {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-left: 3px solid #3b82f6;
+    padding: 0.75rem;
+    margin: 0.75rem 0;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .cssGrid {
+        flex-direction: column;
+        height: auto;
+    }
+    
+    #controls {
+        min-width: auto;
+        max-height: 50vh;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    
+    #heatmap-map {
+        height: 50vh;
+        min-height: 400px;
+    }
+    
+    body {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    #controls {
+        padding: 1rem;
+    }
+    
+    #disclaimer {
+        margin: 0.5rem;
+        padding: 0.75rem;
+    }
+    
+    input[type="submit"] {
+        padding: 0.75rem 1rem;
+    }
+}
+
+/* Accessibility Improvements */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Focus indicators for keyboard navigation */
+.checkmateFormEditField:focus,
+input[type="radio"]:focus,
+input[type="checkbox"]:focus,
+input[type="submit"]:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    #controls {
+        background: #ffffff;
+        border-right: 2px solid #000000;
+    }
+    
+    .checkmateFormEditField {
+        border: 2px solid #000000;
+    }
+    
+    input[type="submit"] {
+        background: #000000;
+        border: 2px solid #000000;
+    }
+}
