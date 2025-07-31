@@ -1,15 +1,59 @@
 {
-  "name": "OptimizedHeatmap",
-  "supportEmail": "support@yourcompany.com",
-  "version": "1.0.0",
+  "name": "Heat Map - Enhanced",
+  "supportEmail": "support@geotab.com",
+  "version": "2.0.0",
+  "description": "Enhanced heat map visualization with modern UI, EV data support, and improved error handling",
   "items": [{
-    "page": "map",
-    "mapScript": {
-      "src": "heatmap_optimized.js"
-    },
-    "html": "replit.com/@francis132/sdk-addin-samples",
+    "url": "heatmap.html",
+    "path": "ActivityLink/",
     "menuName": {
-      "en": "Optimized Heatmap"
+      "en": "Heat Map",
+      "fr": "Carte de Chaleur",
+      "es": "Mapa de Calor",
+      "de": "Wärmekarte"
+    },
+    "icon": "images/icon.svg"
+  }],
+  "production_urls": {
+    "github_pages": {
+      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html",
+      "icon": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/images/icon.svg"
+    },
+    "github_raw": {
+      "url": "https://raw.githubusercontent.com/kikorangee/sdk-addin-samples/main/addin-heatmap/dist/heatmap.html",
+      "icon": "https://raw.githubusercontent.com/kikorangee/sdk-addin-samples/main/addin-heatmap/dist/images/icon.svg"
+    },
+    "jsdelivr_cdn": {
+      "url": "https://cdn.jsdelivr.net/gh/kikorangee/sdk-addin-samples@main/addin-heatmap/dist/heatmap.html",
+      "icon": "https://cdn.jsdelivr.net/gh/kikorangee/sdk-addin-samples@main/addin-heatmap/dist/images/icon.svg"
     }
-  }]
+  },
+  "features": [
+    "Modern responsive UI with Inter font",
+    "Enhanced error handling and validation",
+    "Electric Vehicle (EV) data visualization",
+    "Date range validation (max 30 days)",
+    "Vehicle selection limit (max 50)",
+    "Improved accessibility support",
+    "Better mobile responsiveness",
+    "Real-time progress indicators"
+  ],
+  "requirements": {
+    "browser": "Modern browser with JavaScript enabled",
+    "internet": "Required for map tiles and external libraries",
+    "geotab": "MyGeotab with vehicle data access"
+  },
+  "changelog": {
+    "2.0.0": [
+      "Complete UI/UX redesign with modern styling",
+      "Added Electric Vehicle data support",
+      "Enhanced error handling and validation",
+      "Improved accessibility and mobile responsiveness",
+      "Added performance optimizations",
+      "Better geolocation handling with fallbacks"
+    ],
+    "1.0.0": [
+      "Initial release with basic heat map functionality"
+    ]
+  }
 }
