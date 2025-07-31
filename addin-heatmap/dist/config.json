@@ -7,7 +7,7 @@
     "mapScript": {
       "src": "heatmap_optimized.js"
     },
-    "html": "heatmap.html",
+    "html": "replit.com/@francis132/sdk-addin-samples",
     "menuName": {
       "en": "Optimized Heatmap"
     }
