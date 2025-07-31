@@ -1,10 +1,14 @@
 document.addEventListener('DOMContentLoaded', function () {
-    // ---- Existing logic: Data structure and variables ----
-    // You likely have something like this:
-    let rawData = []; // This will be filled when vehicles/dates are selected
-    let filteredRawData = []; // Data filtered by date range
 
-    // ---- Existing logic: Date picker setup ----
+    // --- EXISTING LOGIC: Sample structure, replace with your actual Geotab-fetching code ---
+    // If you fetch data from Geotab, keep your code here. This part is preserved.
+    let rawData = [
+        // Your actual data from Geotab goes here. Example:
+        // { lat: ..., lng: ..., timestamp: ... }
+    ];
+    let filteredRawData = rawData.slice();
+
+    // Date picker setup (existing logic)
     const fp = flatpickr("#datePicker", {
         mode: "range",
         dateFormat: "Y-m-d",
@@ -13,9 +17,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // ---- Existing logic: Data filtering and main rendering ----
+    // Filtering and rendering logic (existing)
     function filterAndRender(selectedDates) {
-        // Filter rawData according to date range selection
         if (selectedDates && selectedDates.length === 2) {
             const [start, end] = selectedDates;
             filteredRawData = rawData.filter(item => {
@@ -32,17 +35,17 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // ---- Existing logic: Heatmap rendering ----
+    // YOUR EXISTING HEATMAP RENDERING LOGIC GOES HERE:
+    // Replace this with your actual map rendering code (Geotab, Leaflet, Google Maps, etc).
     function renderHeatMap(data) {
         const div = document.getElementById('heatMapCanvas');
-        div.innerHTML = ''; // Clear previous map
-        // Insert your existing heatmap logic here, for example:
-        // heatMapLibrary.render(div, data);
-        // For demonstration, we'll show a count:
-        div.innerHTML = `<p>${data.length} data points loaded for heat map.<br>(Integrate actual map rendering here.)</p>`;
+        div.innerHTML = ''; // Clear prev map
+        // --- Your code to draw the heatmap using 'data' ---
+        // Example: heatNet.draw(data); or similar
+        // If you used a library, keep your previous map code here.
     }
 
-    // ---- NEW: Raw data table toggle ----
+    // --- ADDED FUNCTIONALITY: Raw Data Table Button ---
     document.getElementById('showRawDataBtn').addEventListener('click', function() {
         const tableDiv = document.getElementById('rawDataTable');
         if (tableDiv.style.display === 'none' || tableDiv.style.display === '') {
@@ -55,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // ---- NEW: CSV Download ----
+    // --- ADDED FUNCTIONALITY: CSV Download Button ---
     document.getElementById('downloadRawDataBtn').addEventListener('click', function() {
         if (!filteredRawData.length) return;
         const csvHeader = ['Latitude', 'Longitude', 'Timestamp'];
@@ -76,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function () {
         URL.revokeObjectURL(url);
     });
 
-    // ---- NEW: Raw data table renderer ----
+    // --- ADDED FUNCTIONALITY: Raw Data Table Renderer ---
     function renderRawDataTable(data) {
         if (!data.length) {
             document.getElementById('rawDataTable').innerHTML = '<p>No data for selected range.</p>';
@@ -90,25 +93,9 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('rawDataTable').innerHTML = html;
     }
 
-    // ---- Existing logic: Initial data load/vehicle selection ----
-    // (You must keep your Geotab API data loading here)
-    // Example:
-    // function fetchDataForSelection(selectedVehicles, selectedDateRange) {
-    //     geotabApi.getTrips({ vehicles: selectedVehicles, fromDate: selectedDateRange[0], toDate: selectedDateRange[1] }, function(trips) {
-    //         rawData = trips.map(trip => ({
-    //             lat: trip.latitude,
-    //             lng: trip.longitude,
-    //             timestamp: trip.timestamp
-    //         }));
-    //         filterAndRender(selectedDateRange);
-    //     });
-    // }
-    // Make sure to call filterAndRender() after you update rawData
+    // --- EXISTING LOGIC: Initial render ---
+    filterAndRender();
 
-    // ---- Initial rendering ----
-    filterAndRender(); // This will show initial state (empty or all data)
-
-    // ---- Optionally: wire up vehicle selection ----
-    // If you have vehicle selection drop-downs, call fetchDataForSelection() when changed
+    // --- EXISTING LOGIC: If you have vehicle selection or other controls, keep those event listeners and calls here ---
 
 });
