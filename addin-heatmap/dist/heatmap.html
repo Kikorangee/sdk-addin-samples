@@ -7,7 +7,7 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 16px; }
         #controls { margin-bottom: 16px; }
-        #heatMapCanvas { width: 100%; height: 400px; background: #f5f5f5; border: 1px solid #ccc; margin-bottom: 16px; }
+        #heatMapCanvas { width: 100%; height: 400px; margin-bottom: 16px; }
         #rawDataTable { display: none; margin-top: 16px; }
         #rawDataTable table { border-collapse: collapse; width: 100%; }
         #rawDataTable th, #rawDataTable td { border: 1px solid #ddd; padding: 8px; text-align: left; }
@@ -19,18 +19,13 @@
 <body>
     <h1>Heat Map</h1>
     <div id="controls">
-        <label for="quickRange">Quick Date Range:</label>
-        <select id="quickRange">
-            <option value="">Custom</option>
-            <option value="today">Today</option>
-            <option value="7days">Last 7 Days</option>
-            <option value="30days">Last 30 Days</option>
-        </select>
-        <input id="datePicker" type="text" placeholder="Select Date Range" style="width:200px; margin-left:8px;">
+        <!-- Your existing date pickers and filters can go here -->
         <button id="showRawDataBtn">Show Raw Data</button>
         <button id="downloadRawDataBtn">Download CSV</button>
     </div>
-    <div id="heatMapCanvas">Heat map will be rendered here.</div>
+    <div id="heatMapCanvas">
+        <!-- Your existing heatmap rendering code should target this div -->
+    </div>
     <div id="rawDataTable"></div>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="heatmap.js"></script>
