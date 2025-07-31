@@ -1,32 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Heat Map Add-In</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <meta charset="utf-8">
+    <title>Optimized Heatmap</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-heatmap@1.0.0/leaflet-heatmap.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 16px; }
-        #controls { margin-bottom: 16px; }
-        #heatMapCanvas { width: 100%; height: 400px; margin-bottom: 16px; }
-        #rawDataTable { display: none; margin-top: 16px; }
-        #rawDataTable table { border-collapse: collapse; width: 100%; }
-        #rawDataTable th, #rawDataTable td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        #rawDataTable th { background-color: #f0f0f0; }
-        #showRawDataBtn { margin-right: 8px; }
-        #downloadRawDataBtn { margin-left: 8px; }
-    </style>
-</head>
-<body>
-    <h1>Heat Map</h1>
-    <div id="controls">
-        <label for="datePicker">Select Date Range:</label>
-        <input id="datePicker" type="text" placeholder="Choose date range" style="width:200px; margin-left:8px;">
-        <button id="showRawDataBtn">Show Raw Data</button>
-        <button id="downloadRawDataBtn">Download CSV</button>
-    </div>
-    <div id="heatMapCanvas"></div>
-    <div id="rawDataTable"></div>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="heatmap.js"></script>
-</body>
-</html>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 10px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .form-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 200px;
+        }
+        
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
+        select, input[type="datetime-local"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
