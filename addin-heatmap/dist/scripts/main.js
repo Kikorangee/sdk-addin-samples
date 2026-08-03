@@ -146,14 +146,10 @@ geotab.addin.heatmap = function () {
     while (value < -Math.PI) value += 2 * Math.PI;
     return value;
   }
-  var RULE_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#6a1b9a', '#ef6c00', '#00838f', '#ad1457', '#4527a0', '#558b2f', '#4e342e'];
-  function colorForRule(ruleName) {
-    var hash = 0;
-    for (var i = 0; i < ruleName.length; i++) {
-      hash = (hash << 5) - hash + ruleName.charCodeAt(i);
-      hash |= 0;
-    }
-    return RULE_COLORS[Math.abs(hash) % RULE_COLORS.length];
+  function colorForRuleIndex(ruleIndex) {
+    // Golden-angle spacing guarantees adjacent selected rules use different hues.
+    var hue = Math.round(Number(ruleIndex) * 137.508 % 360);
+    return 'hsl(' + hue + ', 72%, 42%)';
   }
   function buildEventMetric(eventInfo, records, roadSpeeds) {
     var logs = validLogRecords(records);
@@ -230,7 +226,7 @@ geotab.addin.heatmap = function () {
       label: label,
       kind: kind,
       ruleName: name,
-      color: colorForRule(name),
+      color: eventInfo.color,
       popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) + '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) + '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
     };
   }
@@ -257,7 +253,7 @@ geotab.addin.heatmap = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
         return '<span><i style="background:' + rule.color + '"></i>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Heat map is shown without markers by default.</small>';
+      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Each selected exception rule has a different colour. Heat map is shown without markers by default.</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -966,6 +962,7 @@ geotab.addin.heatmap = function () {
           eventInfos.push({
             event: exceptionEvents[_j],
             rule: selectedRules[ruleIndex],
+            color: colorForRuleIndex(ruleIndex),
             vehicleName: vehicleName
           });
           calls.push(['Get', {
