@@ -16,7 +16,7 @@
 
   <!-- build:css styles/main.css -->
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.7">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.8">
   <!-- endbuild -->
 
   <!-- build:js scripts/vendor.js -->
@@ -27,7 +27,7 @@
   <!-- endbuild -->
 
   <!-- build:js scripts/main.js -->
-  <script src="scripts/main.js?v=1.0.7"></script>
+  <script src="scripts/main.js?v=1.0.8"></script>
   <!-- endbuild -->
 </head>
 
@@ -57,10 +57,11 @@
           <input type="radio" id="visualizeByLocationHistory" name="visualizeBy" value="locationHistory" checked> Location History
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
 
-          <label for="exceptionTypes">Rule:</label>
-          <select id="exceptionTypes" class="checkmateFormEditField" ng-mousedown="selectType($event)" disabled>
-              <option disabled="disabled">Select a rule</option>
+          <label for="exceptionTypes">Rule(s):</label>
+          <select id="exceptionTypes" class="checkmateFormEditField" ng-mousedown="selectType($event)" multiple="true" size="7" disabled>
+              <option disabled="disabled">Select one or more rules</option>
           </select>
+          <small class="selection-help">Use Ctrl/Cmd+Click to select multiple rules.</small>
 
           <label for="vehicles">Vehicle(s):</label>
           <select id="vehicles" class="checkmateFormEditField" multiple="true"
@@ -99,7 +100,7 @@
             <h3>Instructions</h3>
             <ol>
               <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
-              <li>If visualizing by exception history, select a rule for which to search for exceptions.</li>
+              <li>If visualizing by exception history, select one or more rules to search.</li>
               <li>Select the vehicle(s) to search on.</li>
               <li>Specify a date/time range.</li>
               <li>Click the <i>Show Heat Map</i> button to update the map.</li>

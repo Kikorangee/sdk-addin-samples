@@ -56,6 +56,13 @@ select.checkmateFormEditField {
     width: 100%;
 }
 
+.selection-help {
+    display: block;
+    margin-top: 5px;
+    color: #617083;
+    font-size: 11px;
+}
+
 label {
     padding-top: 1em;
     display: block;

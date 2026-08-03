@@ -614,9 +614,13 @@ geotab.addin.heatmap = () => {
   };
 
   let displayHeatMapForExceptionHistory = () => {
-    let deviceId = elVehicles.value;
-    let ruleId = elExceptionTypes.options[elExceptionTypes.selectedIndex].value;
-    let ruleName = elExceptionTypes.options[elExceptionTypes.selectedIndex].text;
+    let selectedRules = [];
+    for (let i = 0; i < elExceptionTypes.options.length; i++) {
+      let ruleOption = elExceptionTypes.options[i];
+      if (ruleOption.selected && !ruleOption.disabled && ruleOption.value) {
+        selectedRules.push({ id: ruleOption.value, name: ruleOption.text });
+      }
+    }
 
     // Get selected device IDs.
     let deviceIds = [];
@@ -636,7 +640,13 @@ geotab.addin.heatmap = () => {
     errorHandler('');
     messageHandler('');
 
-    if ((deviceIds === null) || (ruleId === null) || (fromValue === '') || (toValue === '')) {
+    if (deviceIds.length === 0 || selectedRules.length === 0 || fromValue === '' || toValue === '') {
+      errorHandler('Select at least one vehicle and one exception rule.');
+      return;
+    }
+
+    if (deviceIds.length * selectedRules.length > 100) {
+      errorHandler('Select fewer vehicles or rules. A maximum of 100 vehicle/rule combinations is supported.');
       return;
     }
     
@@ -645,26 +655,27 @@ geotab.addin.heatmap = () => {
     let dateFrom = new Date(fromValue).toISOString();
     let dateTo = new Date(toValue).toISOString();
     
-    // Build array of calls to get ExceptionEvents for the seletced rule during
-    // the specified date/time range for each selected device.
+    // Build one ExceptionEvent request for every selected vehicle/rule pair.
     let calls = [];
-		for (let i = 0, len = deviceIds.length; i < len; i++) {
-      calls.push([
-        'Get', {
-          typeName: 'ExceptionEvent',
-          resultsLimit: myGeotabGetResultsLimit,
-          search: {
-            deviceSearch: {
-              id: deviceIds[i]
-            },
-            ruleSearch: {
-              id: ruleId
-            },
-            fromDate: dateFrom,
-            toDate: dateTo
+		for (let i = 0; i < deviceIds.length; i++) {
+      for (let j = 0; j < selectedRules.length; j++) {
+        calls.push([
+          'Get', {
+            typeName: 'ExceptionEvent',
+            resultsLimit: myGeotabGetResultsLimit,
+            search: {
+              deviceSearch: {
+                id: deviceIds[i]
+              },
+              ruleSearch: {
+                id: selectedRules[j].id
+              },
+              fromDate: dateFrom,
+              toDate: dateTo
+            }
           }
-        }    
-      ]);
+        ]);
+		}
 		}
 
     // Execute multicall to get ExceptionEvents for the seletced rule during
@@ -746,7 +757,7 @@ geotab.addin.heatmap = () => {
           updateMapEventTotal();
 
           messageHandler(`Displaying ${formatNumber(logRecordCount)} combined log records associated with the
-          ${formatNumber(exceptionEventCount)} '${ruleName}' rule exceptions found for the 
+          ${formatNumber(exceptionEventCount)} exceptions across ${formatNumber(selectedRules.length)} selected rules for the
           ${formatNumber(selectedVehicleCount)} selected vehicles. [${getElapsedTimeSeconds()} sec]`);
           
           // Build the error message if result limit(s) exceeded.
@@ -755,7 +766,7 @@ geotab.addin.heatmap = () => {
             
             if (exceededResultsLimitCountForExceptionEvents) {
               errorMessage += ` the result limit of 
-              ${formatNumber(myGeotabGetResultsLimit)} was exceeded for '${ruleName}' rule exceptions`;
+              ${formatNumber(myGeotabGetResultsLimit)} was exceeded for one or more selected rules`;
             }
 
             if (exceededResultsLimitCountForExceptionEvents > 0 && exceededResultsLimitCountForLogRecords > 0) {

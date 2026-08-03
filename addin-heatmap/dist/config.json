@@ -1,7 +1,7 @@
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "items": [{
     "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html",
     "path": "ActivityLink/",
