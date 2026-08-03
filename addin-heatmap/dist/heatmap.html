@@ -19,8 +19,8 @@
   
   <div id="heatmap" style="height: calc(100%)">
     <div id="disclaimer">
-      <label id="disclaimerLabel">Heatmap Addin</label>
-      <p>This tool is provided by Direct Track Ltd</p>
+      <label id="disclaimerLabel">Heatmap Fleet Analytics</label>
+      <p>This tool is for visualizing vehicle location history and rule violations on an interactive heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay</p>
     </div>
 
     <div class="cssGrid sm-part-12">
@@ -30,12 +30,8 @@
           <div class="brand-header">
             <img src="images/tdg-environmental-logo.png" alt="TDG Environmental" class="brand-logo">
           </div>
-          <h2>Heatmap</h2>
-          <p>
-            This example demonstrates how to create an add-in to visualize location or exception
-            (rule violation) history using a heat map.
-          </p>
-
+          <h2>Heatmap Fleet Analytics</h2>
+          <p>Location-history heat maps from Geotab `LogRecord` GPS data. - Exception-history heat maps from `ExceptionEvent` and associated `LogRecord` data. - Multiple vehicle and exception-rule selection. - Quick ranges for today, yesterday, this week, last week, this month, and last month. - Event totals showing events currently in view and total records loaded. - A clean heat-map-first result with no markers obscuring the heat colouring. - A top-right legend showing each selected exception rule, colour, and event count. - An optional **Show event details** overlay with colour-coded dots, collision-limited labels, hover text, and clickable event information.</p>
           <label for="visualizeBy">Visualize by:</label>
           <input type="radio" id="visualizeByLocationHistory" name="visualizeBy" value="locationHistory" checked> Location History
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
