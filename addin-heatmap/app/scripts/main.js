@@ -8,6 +8,7 @@ geotab.addin.heatmap = () => {
 
   let map;
   let heatMapLayer;
+  let metricMarkerLayer;
   let heatMapPoints = [];
 
   let elExceptionTypes;
@@ -110,6 +111,147 @@ geotab.addin.heatmap = () => {
   function setHeatMapPoints(points) {
     heatMapPoints = points || [];
     updateMapEventTotal();
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatDuration(milliseconds) {
+    const seconds = Math.max(0, Math.round(milliseconds / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainder = seconds % 60;
+    if (hours) return hours + 'h ' + minutes + 'm';
+    if (minutes) return minutes + 'm ' + remainder + 's';
+    return remainder + 's';
+  }
+
+  function validLogRecords(records) {
+    return (records || []).filter(record =>
+      Number.isFinite(Number(record.latitude)) && Number.isFinite(Number(record.longitude)) &&
+      (Number(record.latitude) !== 0 || Number(record.longitude) !== 0)
+    ).sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+  }
+
+  function roadLimitAt(roadSpeeds, dateTime) {
+    const target = new Date(dateTime).getTime();
+    let limit = null;
+    for (let i = 0; i < roadSpeeds.length; i++) {
+      if (new Date(roadSpeeds[i].date).getTime() > target) break;
+      limit = Number(roadSpeeds[i].maxSpeed);
+    }
+    return Number.isFinite(limit) && limit > 0 ? limit : null;
+  }
+
+  function bearingRadians(a, b) {
+    const lat1 = Number(a.latitude) * Math.PI / 180;
+    const lat2 = Number(b.latitude) * Math.PI / 180;
+    const dLon = (Number(b.longitude) - Number(a.longitude)) * Math.PI / 180;
+    return Math.atan2(Math.sin(dLon) * Math.cos(lat2),
+      Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon));
+  }
+
+  function normalizedAngle(value) {
+    while (value > Math.PI) value -= 2 * Math.PI;
+    while (value < -Math.PI) value += 2 * Math.PI;
+    return value;
+  }
+
+  function buildEventMetric(eventInfo, records, roadSpeeds) {
+    const logs = validLogRecords(records);
+    if (!logs.length) return null;
+    const name = eventInfo.rule.name || 'Exception';
+    const lowerName = name.toLowerCase();
+    const event = eventInfo.event;
+    const durationMs = Math.max(0, new Date(event.activeTo || event.activeFrom) - new Date(event.activeFrom));
+    let chosen = logs[Math.floor(logs.length / 2)];
+    let label = formatDuration(durationMs);
+    let detail = 'Duration: ' + label;
+    let kind = 'duration';
+
+    if (lowerName.indexOf('speed') > -1) {
+      let bestExcess = -Infinity;
+      let maxSpeed = -Infinity;
+      let bestLimit = null;
+      logs.forEach(log => {
+        const speed = Number(log.speed);
+        if (!Number.isFinite(speed)) return;
+        if (speed > maxSpeed) {
+          maxSpeed = speed;
+          chosen = log;
+        }
+        const limit = roadLimitAt(roadSpeeds || [], log.dateTime);
+        if (limit != null && speed - limit > bestExcess) {
+          bestExcess = speed - limit;
+          bestLimit = limit;
+          chosen = log;
+        }
+      });
+      if (bestLimit != null && bestExcess > -Infinity) {
+        label = (bestExcess >= 0 ? '+' : '') + Math.round(bestExcess) + ' km/h';
+        detail = 'Peak exceedance: ' + label + ' (vehicle ' + Math.round(Number(chosen.speed)) +
+          ' km/h; posted limit ' + Math.round(bestLimit) + ' km/h)';
+      } else {
+        label = Math.round(maxSpeed) + ' km/h';
+        detail = 'Peak vehicle speed: ' + label + ' (posted limit unavailable)';
+      }
+      kind = 'speed';
+    } else if (lowerName.indexOf('harsh') > -1 || lowerName.indexOf('hard acceleration') > -1) {
+      let bestG = 0;
+      for (let i = 1; i < logs.length; i++) {
+        const elapsed = (new Date(logs[i].dateTime) - new Date(logs[i - 1].dateTime)) / 1000;
+        if (!(elapsed > 0 && elapsed <= 60)) continue;
+        let g;
+        if (lowerName.indexOf('corner') > -1 && i < logs.length - 1) {
+          const nextElapsed = (new Date(logs[i + 1].dateTime) - new Date(logs[i].dateTime)) / 1000;
+          if (!(nextElapsed > 0 && nextElapsed <= 60)) continue;
+          const turn = Math.abs(normalizedAngle(bearingRadians(logs[i], logs[i + 1]) -
+            bearingRadians(logs[i - 1], logs[i])));
+          g = (Number(logs[i].speed) / 3.6) * turn / ((elapsed + nextElapsed) / 2) / 9.80665;
+        } else {
+          const acceleration = ((Number(logs[i].speed) - Number(logs[i - 1].speed)) / 3.6) / elapsed / 9.80665;
+          g = lowerName.indexOf('brak') > -1 ? -acceleration : acceleration;
+        }
+        if (Number.isFinite(g) && g > bestG) {
+          bestG = g;
+          chosen = logs[i];
+        }
+      }
+      label = bestG.toFixed(2) + ' g';
+      detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') +
+        ' force: ' + label;
+      kind = 'force';
+    }
+
+    const distance = Number(event.distance);
+    const secondary = 'Duration: ' + formatDuration(durationMs) +
+      (Number.isFinite(distance) ? '; distance: ' + distance.toFixed(2) + ' km' : '');
+    return {
+      lat: Number(chosen.latitude), lon: Number(chosen.longitude), label: label, kind: kind,
+      popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) +
+        '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) +
+        '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
+    };
+  }
+
+  function displayMetricMarkers(metrics) {
+    if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
+    metricMarkerLayer = L.layerGroup().addTo(map);
+    (metrics || []).slice(0, 500).forEach(metric => {
+      const marker = L.marker([metric.lat, metric.lon], {
+        icon: L.divIcon({
+          className: 'event-metric-marker event-metric-' + metric.kind,
+          html: '<span>' + escapeHtml(metric.label) + '</span>',
+          iconSize: null
+        })
+      });
+      marker.bindTooltip(metric.label, { direction: 'top', offset: [0, -6] });
+      marker.bindPopup(metric.popup);
+      marker.addTo(metricMarkerLayer);
+    });
   }
 
   function openCacheDb() {
@@ -693,10 +835,25 @@ geotab.addin.heatmap = () => {
       let exceptionEventCount = 0;
       let exceededResultsLimitCountForExceptionEvents = 0;  
       let calls = [];
+      let eventInfos = [];
       for (let i = 0, len = results.length; i < len; i++) {
         let exceptionEvents = results[i];
+        let ruleIndex = i % selectedRules.length;
+        let deviceIndex = Math.floor(i / selectedRules.length);
+        let vehicleName = deviceIds[deviceIndex];
+        for (let optionIndex = 0; optionIndex < elVehicles.options.length; optionIndex++) {
+          if (elVehicles.options[optionIndex].value === deviceIds[deviceIndex]) {
+            vehicleName = elVehicles.options[optionIndex].text;
+            break;
+          }
+        }
         for (let j = 0; j < exceptionEvents.length; j++) {
           exceptionEventCount++;
+          eventInfos.push({
+            event: exceptionEvents[j],
+            rule: selectedRules[ruleIndex],
+            vehicleName: vehicleName
+          });
           calls.push([
             'Get', {
               typeName: 'LogRecord',
@@ -716,11 +873,24 @@ geotab.addin.heatmap = () => {
         }                
       }
 
+      let roadDevices = [];
+      deviceIds.forEach(deviceId => {
+        roadDevices.push(deviceId);
+        calls.push(['GetPostedRoadSpeedsForDevice', {
+          deviceSearch: { id: deviceId },
+          fromDate: dateFrom,
+          toDate: dateTo,
+          postedRoadSpeedOptions: 'None'
+        }]);
+      });
+
       // Execute multicall to get LogRecords associated with the devices
       // associated with the returned ExceptionEvents during the timeframes
       // of the ExceptionEvents.
       api.multiCall(calls, function (results) {
-        if (resultsEmpty(results)) {
+        let logResults = results.slice(0, eventInfos.length);
+        let roadResults = results.slice(eventInfos.length);
+        if (resultsEmpty(logResults)) {
           errorHandler('No data to display');
           toggleLoading(false);
           return;
@@ -729,10 +899,16 @@ geotab.addin.heatmap = () => {
         let coordinates = [];
         let bounds = [];
         let logRecordCount = 0;
-        let exceededResultsLimitCountForLogRecords = 0;      
+        let exceededResultsLimitCountForLogRecords = 0;
+        let roadByDevice = {};
+        roadDevices.forEach((deviceId, index) => {
+          roadByDevice[deviceId] = (roadResults[index] || []).slice().sort((a, b) =>
+            new Date(a.date) - new Date(b.date));
+        });
+        let metrics = [];
         // Build coordinates and bounds.
-        for (let i = 0, len = results.length; i < len; i++) {
-          let logRecords = results[i];
+        for (let i = 0, len = logResults.length; i < len; i++) {
+          let logRecords = logResults[i];
           for (let j = 0; j < logRecords.length; j++) {
             if (logRecords[j].latitude !== 0 || logRecords[j].longitude !== 0) {
               coordinates.push({
@@ -746,7 +922,11 @@ geotab.addin.heatmap = () => {
           }
           if (logRecords.length >= myGeotabGetResultsLimit){
             exceededResultsLimitCountForLogRecords++;
-          }                   
+          }
+          let eventInfo = eventInfos[i];
+          let metric = buildEventMetric(eventInfo, logRecords,
+            roadByDevice[eventInfo.event.device.id] || []);
+          if (metric) metrics.push(metric);
         }
 
         // Update map.
@@ -754,6 +934,7 @@ geotab.addin.heatmap = () => {
           setHeatMapPoints(coordinates);
           map.fitBounds(bounds);
           heatMapLayer.setLatLngs(coordinates);
+          displayMetricMarkers(metrics);
           updateMapEventTotal();
 
           messageHandler(`Displaying ${formatNumber(logRecordCount)} combined log records associated with the

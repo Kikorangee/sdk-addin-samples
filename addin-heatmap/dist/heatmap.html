@@ -8,19 +8,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Heat Map</title>
 
-  <link rel="stylesheet" href="styles/vendor.css">
+  <!-- build:css styles/vendor.css -->
+  <!-- bower:css -->
+  <link rel="stylesheet" href="bower_components/leaflet/dist/leaflet.css">
+  <!-- endbower -->
+  <!-- endbuild -->
+
+  <!-- build:css styles/main.css -->
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.8">
-  <script src="scripts/vendor.js"></script>
-  <script src="scripts/main.js?v=1.0.8"></script>
+  <link rel="stylesheet" href="styles/main.css?v=1.0.9">
+  <!-- endbuild -->
+
+  <!-- build:js scripts/vendor.js -->
+  <!-- bower:js -->
+  <script src="bower_components/leaflet/dist/leaflet.js"></script>
+  <script src="bower_components/leaflet.heat/dist/leaflet-heat.js"></script>
+  <!-- endbower -->
+  <!-- endbuild -->
+
+  <!-- build:js scripts/main.js -->
+  <script src="scripts/main.js?v=1.0.9"></script>
+  <!-- endbuild -->
 </head>
 
 <body>
   
   <div id="heatmap" style="height: calc(100%)">
     <div id="disclaimer">
-      <label id="disclaimerLabel">Heatmap Addin</label>
-      <p>This tool is provided by Direct Track Ltd</p>
+      <label id="disclaimerLabel">Sample add-in/tool</label>
+      <p>Twe may at any time,
+          and without warning, change the design, presentation, or functionality of the software.</p>
     </div>
 
     <div class="cssGrid sm-part-12">
