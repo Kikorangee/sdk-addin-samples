@@ -1,7 +1,7 @@
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "items": [{
     
     "url": "heatmap.html",

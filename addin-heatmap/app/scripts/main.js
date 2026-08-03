@@ -472,11 +472,10 @@ geotab.addin.heatmap = () => {
     startTime = new Date();
 
     if (elExceptionTypes.disabled === true) {
-
-      displayCachedHeatMapForLocationHistory();
+      displayHeatMapForLocationHistory();
     }
     else {
-      displayCachedHeatMapForExceptionHistory();
+      displayHeatMapForExceptionHistory();
     }
   }
 
