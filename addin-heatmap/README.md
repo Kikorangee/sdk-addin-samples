@@ -41,10 +41,10 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
   "version": "1.0.14",
   "items": [
     {
-      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html",
-      "path": "ActivityLink/",
+      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap_v1_0_14.html",
+      "category": "SafetyId",
       "menuName": {
-        "en": "Heat Map"
+        "en": "Heat Map Analytics"
       },
       "icon": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/images/icon.svg"
     }

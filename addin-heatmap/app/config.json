@@ -4,10 +4,10 @@
   "version": "1.0.14",
   "items": [{
     
-    "url": "heatmap.html",
-    "path": "ActivityLink/",
+    "url": "heatmap_v1_0_14.html",
+    "category": "SafetyId",
     "menuName": {
-      "en": "Heat Map"
+      "en": "Heat Map Analytics"
     },
     
     "icon": "images/icon.svg"
