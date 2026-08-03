@@ -89,3 +89,63 @@ ol {
     user-select: none;
     /* Non-prefixed version, currently supported by Chrome, Edge, Opera and Firefox */
 }
+
+.brand-header {
+    margin: -4px 0 14px;
+    padding: 12px;
+    text-align: center;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.brand-logo {
+    display: block;
+    width: 100%;
+    max-width: 220px;
+    height: auto;
+    margin: 0 auto;
+}
+
+.date-presets {
+    margin: 16px 0 0;
+    padding: 0;
+    border: 0;
+}
+
+.date-presets legend {
+    padding: 0 0 8px;
+    font-weight: 600;
+    color: #243447;
+}
+
+.date-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.date-preset {
+    min-height: 34px;
+    padding: 7px 8px;
+    border: 1px solid #9eb6c8;
+    border-radius: 5px;
+    background: #fff;
+    color: #25477b;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.date-preset:hover,
+.date-preset:focus-visible {
+    border-color: #1677a6;
+    background: #edf8fc;
+}
+
+.date-preset.is-active {
+    border-color: #087ca7;
+    background: #087ca7;
+    color: #fff;
+    font-weight: 600;
+}

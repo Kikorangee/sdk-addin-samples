@@ -866,22 +866,55 @@ geotab.addin.heatmap = () => {
     elMessage = document.getElementById('message');
     elLoading = document.getElementById('loading');
 
-    // set up dates
-    let now = new Date();
-    let dd = now.getDate();
-    let mm = now.getMonth() + 1;
-    let yy = now.getFullYear();
+    const formatLocalDateTime = date => {
+      const pad = value => String(value).padStart(2, '0');
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' +
+        pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+    };
 
-    if (dd < 10) {
-      dd = '0' + dd;
-    }
+    const startOfDay = date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0);
+    const endOfDay = date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59);
 
-    if (mm < 10) {
-      mm = '0' + mm;
-    }
+    const setDatePreset = range => {
+      const now = new Date();
+      let from;
+      let to;
 
-    elDateFromInput.value = yy + '-' + mm + '-' + dd + 'T' + '00:00';
-    elDateToInput.value = yy + '-' + mm + '-' + dd + 'T' + '23:59';
+      if (range === 'yesterday') {
+        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        from = startOfDay(yesterday);
+        to = endOfDay(yesterday);
+      } else if (range === 'thisWeek') {
+        const daysSinceMonday = (now.getDay() + 6) % 7;
+        from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday, 0, 0);
+        to = now;
+      } else if (range === 'lastWeek') {
+        const daysSinceMonday = (now.getDay() + 6) % 7;
+        from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday - 7, 0, 0);
+        to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6, 23, 59);
+      } else if (range === 'thisMonth') {
+        from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0);
+        to = now;
+      } else if (range === 'lastMonth') {
+        from = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0);
+        to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59);
+      } else {
+        from = startOfDay(now);
+        to = now;
+        range = 'today';
+      }
+
+      elDateFromInput.value = formatLocalDateTime(from);
+      elDateToInput.value = formatLocalDateTime(to);
+      document.querySelectorAll('.date-preset').forEach(button => {
+        button.classList.toggle('is-active', button.dataset.range === range);
+      });
+    };
+
+    document.querySelectorAll('.date-preset').forEach(button => {
+      button.addEventListener('click', () => setDatePreset(button.dataset.range));
+    });
+    setDatePreset('today');
 
     document.getElementById('visualizeByLocationHistory').addEventListener('click', event => {
       elExceptionTypes.disabled = true;
@@ -939,17 +972,35 @@ geotab.addin.heatmap = () => {
 
       const initializeWithLocation = () => {
         const fallback = { longitude: 174.7633, latitude: -36.8485 };
+        let initialized = false;
         const finish = coords => {
-          initializeInterface(coords || fallback);
-          pruneCache();
-          callback();
+          if (initialized) return;
+          initialized = true;
+          try {
+            initializeInterface(coords || fallback);
+            pruneCache();
+          } catch (error) {
+            console.error('Heat Map initialization failed:', error);
+          } finally {
+            callback();
+          }
         };
         if ('geolocation' in navigator) {
-          navigator.geolocation.getCurrentPosition(
-            position => finish(position.coords),
-            () => finish(fallback),
-            { timeout: 5000 }
-          );
+          try {
+            navigator.geolocation.getCurrentPosition(
+              position => finish(position.coords),
+              error => {
+                console.warn('Location unavailable; using fallback:', error);
+                finish(fallback);
+              },
+              { timeout: 3000, maximumAge: 300000 }
+            );
+            // Some embedded browsers never resolve the geolocation request.
+            setTimeout(() => finish(fallback), 3500);
+          } catch (error) {
+            console.warn('Location request failed; using fallback:', error);
+            finish(fallback);
+          }
         } else {
           finish(fallback);
         }
@@ -1020,6 +1071,9 @@ geotab.addin.heatmap = () => {
       setTimeout(() => {
         map.invalidateSize();
       }, 200);      
+    },
+    blur() {
+      // No active timers or subscriptions need cleanup.
     }
   };
 

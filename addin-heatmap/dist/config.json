@@ -1,13 +1,14 @@
 {
   "name": "Heat Map",
-  "supportEmail": "support@geotab.com",
-  "version": "1.0.0",
+  "supportEmail": "francis@directt.co.nz",
+  "version": "1.0.2",
   "items": [{
-    "url": "https://cdn.jsdelivr.net/gh/Geotab/sdk-addin-samples@master/addin-heatmap/dist/heatmap.html",
+    "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html?v=1.0.2",
     "path": "ActivityLink/",
     "menuName": {
       "en": "Heat Map"
     },
-    "icon": "https://cdn.jsdelivr.net/gh/Geotab/sdk-addin-samples@master/addin-heatmap/dist/images/icon.svg"
-  }]
+    "icon": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/images/icon.svg"
+  }],
+  "isSigned": false
 }

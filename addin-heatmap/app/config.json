@@ -1,7 +1,7 @@
 {
   "name": "Heat Map",
-  "supportEmail": "support@geotab.com",
-  "version": "1.0.0",
+  "supportEmail": "francis@directt.co.nz",
+  "version": "1.0.2",
   "items": [{
     
     "url": "heatmap.html",
@@ -15,7 +15,7 @@
   "dev": {
     "root": "heatmap",
     "dist": {
-      "host": "https://cdn.jsdelivr.net/gh/Geotab/sdk-addin-samples@master/addin-heatmap/dist/"
+      "host": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/"
     }
   }
 }
