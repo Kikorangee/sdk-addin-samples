@@ -4,7 +4,7 @@
 
 #map-event-total {
     position: absolute;
-    top: 12px;
+    top: 70px;
     right: 12px;
     z-index: 1000;
     min-width: 142px;
@@ -56,6 +56,26 @@ select.checkmateFormEditField {
     width: 100%;
 }
 
+#map-brand-logo {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1000;
+    width: 220px;
+    padding: 8px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.15);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+    pointer-events: none;
+}
+
+#map-brand-logo img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
 .event-metric-marker {
     border: 0;
     background: transparent;
@@ -95,7 +115,7 @@ select.checkmateFormEditField {
 .metric-legend {
     min-width: 180px;
     max-width: 280px;
-    margin-top: 82px !important;
+    margin-top: 160px !important;
     padding: 10px 12px;
     border: 1px solid rgba(15, 23, 42, 0.18);
     border-radius: 8px;
