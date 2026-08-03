@@ -8,6 +8,7 @@ geotab.addin.heatmap = function () {
   var map;
   var heatMapLayer;
   var metricMarkerLayer;
+  var metricLegendControl;
   var heatMapPoints = [];
   var elExceptionTypes;
   var elVehicles;
@@ -143,6 +144,15 @@ geotab.addin.heatmap = function () {
     while (value < -Math.PI) value += 2 * Math.PI;
     return value;
   }
+  var RULE_COLORS = ['#c62828', '#1565c0', '#2e7d32', '#6a1b9a', '#ef6c00', '#00838f', '#ad1457', '#4527a0', '#558b2f', '#4e342e'];
+  function colorForRule(ruleName) {
+    var hash = 0;
+    for (var i = 0; i < ruleName.length; i++) {
+      hash = (hash << 5) - hash + ruleName.charCodeAt(i);
+      hash |= 0;
+    }
+    return RULE_COLORS[Math.abs(hash) % RULE_COLORS.length];
+  }
   function buildEventMetric(eventInfo, records, roadSpeeds) {
     var logs = validLogRecords(records);
     if (!logs.length) return null;
@@ -217,27 +227,60 @@ geotab.addin.heatmap = function () {
       lon: Number(chosen.longitude),
       label: label,
       kind: kind,
+      ruleName: name,
+      color: colorForRule(name),
       popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) + '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) + '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
     };
+  }
+  function displayMetricLegend(metrics) {
+    if (metricLegendControl) map.removeControl(metricLegendControl);
+    var rules = [];
+    var seen = {};
+    (metrics || []).forEach(function (metric) {
+      if (!seen[metric.ruleName]) {
+        seen[metric.ruleName] = true;
+        rules.push({
+          name: metric.ruleName,
+          color: metric.color
+        });
+      }
+    });
+    if (!rules.length) return;
+    metricLegendControl = L.control({
+      position: 'topright'
+    });
+    metricLegendControl.onAdd = function () {
+      var element = L.DomUtil.create('div', 'metric-legend');
+      element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
+        return '<span><i style="background:' + rule.color + '"></i>' + escapeHtml(rule.name) + '</span>';
+      }).join('');
+      L.DomEvent.disableClickPropagation(element);
+      return element;
+    };
+    metricLegendControl.addTo(map);
   }
   function displayMetricMarkers(metrics) {
     if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
     metricMarkerLayer = L.layerGroup().addTo(map);
-    (metrics || []).slice(0, 500).forEach(function (metric) {
+    var offsets = [[55, 38], [15, 54], [95, 54], [55, 70], [-5, 40], [115, 40], [20, 78], [90, 78]];
+    (metrics || []).slice(0, 500).forEach(function (metric, index) {
+      var calloutText = metric.ruleName + " \u2192 " + metric.label;
       var marker = L.marker([metric.lat, metric.lon], {
         icon: L.divIcon({
           className: 'event-metric-marker event-metric-' + metric.kind,
-          html: '<span>' + escapeHtml(metric.label) + '</span>',
-          iconSize: null
+          html: '<span style="--rule-color:' + metric.color + '">' + escapeHtml(calloutText) + '</span>',
+          iconSize: [110, 34],
+          iconAnchor: offsets[index % offsets.length]
         })
       });
-      marker.bindTooltip(metric.label, {
+      marker.bindTooltip(calloutText, {
         direction: 'top',
         offset: [0, -6]
       });
       marker.bindPopup(metric.popup);
       marker.addTo(metricMarkerLayer);
     });
+    displayMetricLegend(metrics);
   }
   function openCacheDb() {
     if (cacheDbPromise) return cacheDbPromise;
