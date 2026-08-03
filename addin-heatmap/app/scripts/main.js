@@ -1019,18 +1019,6 @@ geotab.addin.heatmap = () => {
         callback();
       }
 
-      // Session details only namespace the optional browser cache. Resolve
-      // them after MyGeotab has been released from the loading state.
-      try {
-        api.getSession(session => {
-          cacheSessionNamespace = [session.database || 'unknown-database',
-            session.userName || 'unknown-user'].join('|');
-          cacheNamespace = cacheSessionNamespace;
-        }, () => undefined);
-      } catch (error) {
-        console.warn('Session details unavailable; using fallback cache namespace.', error);
-      }
-
     },
     focus(freshApi, freshState) {
       api = freshApi;
