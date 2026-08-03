@@ -66,13 +66,13 @@ select.checkmateFormEditField {
     position: relative;
     display: block;
     min-width: max-content;
-    padding: 5px 8px;
+    padding: 4px 7px;
     border: 1px solid #fff;
     border-radius: 12px;
     background: var(--rule-color, #25477b);
     color: #fff;
     box-shadow: 0 1px 4px rgba(15, 23, 42, 0.45);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     line-height: 1.2;
     text-align: center;

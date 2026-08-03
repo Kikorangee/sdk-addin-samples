@@ -10,6 +10,7 @@ geotab.addin.heatmap = () => {
   let heatMapLayer;
   let metricMarkerLayer;
   let metricLegendControl;
+  let metricMapData = [];
   let heatMapPoints = [];
 
   let elExceptionTypes;
@@ -282,28 +283,54 @@ geotab.addin.heatmap = () => {
     metricLegendControl.addTo(map);
   }
 
-  function displayMetricMarkers(metrics) {
+  function renderMetricMarkers() {
     if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
     metricMarkerLayer = L.layerGroup().addTo(map);
-    const offsets = [
-      [55, 38], [15, 54], [95, 54], [55, 70],
-      [-5, 40], [115, 40], [20, 78], [90, 78]
-    ];
-    (metrics || []).slice(0, 500).forEach((metric, index) => {
+    if (!metricMapData.length) return;
+    const zoom = map.getZoom();
+    const labelLimit = zoom <= 8 ? 4 : zoom <= 10 ? 8 : zoom <= 12 ? 16 : 30;
+    const acceptedLabelPoints = [];
+    let displayedLabels = 0;
+    metricMapData.slice(0, 500).forEach(metric => {
+      if (!map.getBounds().contains(new L.LatLng(metric.lat, metric.lon))) return;
       const calloutText = metric.ruleName + ' \u2192 ' + metric.label;
+      const dot = L.circleMarker([metric.lat, metric.lon], {
+        radius: 4,
+        color: '#ffffff',
+        weight: 1,
+        fillColor: metric.color,
+        fillOpacity: 0.95
+      });
+      dot.bindTooltip(calloutText, { direction: 'top', offset: [0, -5] });
+      dot.bindPopup(metric.popup);
+      dot.addTo(metricMarkerLayer);
+
+      if (displayedLabels >= labelLimit) return;
+      const point = map.latLngToContainerPoint([metric.lat, metric.lon]);
+      const overlaps = acceptedLabelPoints.some(other =>
+        Math.abs(other.x - point.x) < 95 && Math.abs(other.y - point.y) < 34
+      );
+      if (overlaps) return;
+      acceptedLabelPoints.push(point);
+      displayedLabels++;
       const marker = L.marker([metric.lat, metric.lon], {
         icon: L.divIcon({
           className: 'event-metric-marker event-metric-' + metric.kind,
-          html: '<span style="--rule-color:' + metric.color + '">' + escapeHtml(calloutText) + '</span>',
-          iconSize: [110, 34],
-          iconAnchor: offsets[index % offsets.length]
+          html: '<span style="--rule-color:' + metric.color + '">\u2192 ' + escapeHtml(metric.label) + '</span>',
+          iconSize: [70, 30],
+          iconAnchor: [8, 36]
         })
       });
       marker.bindTooltip(calloutText, { direction: 'top', offset: [0, -6] });
       marker.bindPopup(metric.popup);
       marker.addTo(metricMarkerLayer);
     });
+  }
+
+  function displayMetricMarkers(metrics) {
+    metricMapData = metrics || [];
     displayMetricLegend(metrics);
+    renderMetricMarkers();
   }
 
   function openCacheDb() {
@@ -1143,7 +1170,10 @@ geotab.addin.heatmap = () => {
     elLoading = document.getElementById('loading');
     elMapEventTotal = document.getElementById('map-event-total');
 
-    map.on('moveend zoomend', updateMapEventTotal);
+    map.on('moveend zoomend', () => {
+      updateMapEventTotal();
+      renderMetricMarkers();
+    });
     updateMapEventTotal();
 
     const formatLocalDateTime = date => {
