@@ -201,6 +201,7 @@ geotab.addin.heatmap = () => {
       kind = 'speed';
     } else if (lowerName.indexOf('harsh') > -1 || lowerName.indexOf('hard acceleration') > -1) {
       let bestG = 0;
+      let hasForceSample = false;
       for (let i = 1; i < logs.length; i++) {
         const elapsed = (new Date(logs[i].dateTime) - new Date(logs[i - 1].dateTime)) / 1000;
         if (!(elapsed > 0 && elapsed <= 60)) continue;
@@ -217,13 +218,18 @@ geotab.addin.heatmap = () => {
         }
         if (Number.isFinite(g) && g > bestG) {
           bestG = g;
+          hasForceSample = true;
           chosen = logs[i];
         }
       }
-      label = bestG.toFixed(2) + ' g';
-      detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') +
-        ' force: ' + label;
-      kind = 'force';
+      if (hasForceSample) {
+        label = bestG.toFixed(2) + ' g';
+        detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') +
+          ' force: ' + label;
+        kind = 'force';
+      } else {
+        detail = 'G-force unavailable from the GPS samples; duration: ' + label;
+      }
     }
 
     const distance = Number(event.distance);

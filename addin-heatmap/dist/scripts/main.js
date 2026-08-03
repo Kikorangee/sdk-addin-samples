@@ -182,6 +182,7 @@ geotab.addin.heatmap = function () {
       kind = 'speed';
     } else if (lowerName.indexOf('harsh') > -1 || lowerName.indexOf('hard acceleration') > -1) {
       var bestG = 0;
+      var hasForceSample = false;
       for (var i = 1; i < logs.length; i++) {
         var elapsed = (new Date(logs[i].dateTime) - new Date(logs[i - 1].dateTime)) / 1000;
         if (!(elapsed > 0 && elapsed <= 60)) continue;
@@ -197,12 +198,17 @@ geotab.addin.heatmap = function () {
         }
         if (Number.isFinite(g) && g > bestG) {
           bestG = g;
+          hasForceSample = true;
           chosen = logs[i];
         }
       }
-      label = bestG.toFixed(2) + ' g';
-      detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') + ' force: ' + label;
-      kind = 'force';
+      if (hasForceSample) {
+        label = bestG.toFixed(2) + ' g';
+        detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') + ' force: ' + label;
+        kind = 'force';
+      } else {
+        detail = 'G-force unavailable from the GPS samples; duration: ' + label;
+      }
     }
     var distance = Number(event.distance);
     var secondary = 'Duration: ' + formatDuration(durationMs) + (Number.isFinite(distance) ? '; distance: ' + distance.toFixed(2) + ' km' : '');
