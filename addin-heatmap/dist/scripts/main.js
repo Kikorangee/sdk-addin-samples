@@ -10,6 +10,7 @@ geotab.addin.heatmap = function () {
   var metricMarkerLayer;
   var metricLegendControl;
   var metricMapData = [];
+  var metricDetailsVisible = false;
   var heatMapPoints = [];
   var elExceptionTypes;
   var elVehicles;
@@ -239,12 +240,14 @@ geotab.addin.heatmap = function () {
     var seen = {};
     (metrics || []).forEach(function (metric) {
       if (!seen[metric.ruleName]) {
-        seen[metric.ruleName] = true;
-        rules.push({
+        seen[metric.ruleName] = {
           name: metric.ruleName,
-          color: metric.color
-        });
+          color: metric.color,
+          count: 0
+        };
+        rules.push(seen[metric.ruleName]);
       }
+      seen[metric.ruleName].count++;
     });
     if (!rules.length) return;
     metricLegendControl = L.control({
@@ -253,9 +256,15 @@ geotab.addin.heatmap = function () {
     metricLegendControl.onAdd = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
-        return '<span><i style="background:' + rule.color + '"></i>' + escapeHtml(rule.name) + '</span>';
-      }).join('');
+        return '<span><i style="background:' + rule.color + '"></i>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
+      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Heat map is shown without markers by default.</small>';
       L.DomEvent.disableClickPropagation(element);
+      var toggle = element.querySelector('input');
+      toggle.checked = metricDetailsVisible;
+      L.DomEvent.on(toggle, 'change', function () {
+        metricDetailsVisible = toggle.checked;
+        renderMetricMarkers();
+      });
       return element;
     };
     metricLegendControl.addTo(map);
@@ -263,7 +272,7 @@ geotab.addin.heatmap = function () {
   function renderMetricMarkers() {
     if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
     metricMarkerLayer = L.layerGroup().addTo(map);
-    if (!metricMapData.length) return;
+    if (!metricMapData.length || !metricDetailsVisible) return;
     var zoom = map.getZoom();
     var labelLimit = zoom <= 8 ? 4 : zoom <= 10 ? 8 : zoom <= 12 ? 16 : 30;
     var acceptedLabelPoints = [];
@@ -310,6 +319,7 @@ geotab.addin.heatmap = function () {
   }
   function displayMetricMarkers(metrics) {
     metricMapData = metrics || [];
+    metricDetailsVisible = false;
     displayMetricLegend(metrics);
     renderMetricMarkers();
   }

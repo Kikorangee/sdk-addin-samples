@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. It supports multiple vehicles, multiple exception rules, quick date ranges, event totals for the visible map area, and rule-specific metric labels.
 
-Current version: **1.0.12**
+Current version: **1.0.13**
 
 ## Features
 
@@ -12,6 +12,7 @@ Current version: **1.0.12**
 - Quick ranges for today, yesterday, this week, last week, this month, and last month.
 - Event totals showing events currently in view and total records loaded.
 - Clickable event metric markers with vehicle, rule, timestamp, duration, and distance details.
+- A clean heat-map-first view with an optional event-details overlay in the legend.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
 
@@ -35,7 +36,7 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "items": [
     {
       "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap.html",
@@ -76,7 +77,7 @@ Historical daily results are cached in IndexedDB for up to 30 days. The current 
 
 ## Live Validation
 
-Version 1.0.12 was tested in the Hydrotech MyGeotab database using vehicle `COM092` and the previous calendar month:
+Version 1.0.13 was tested in the Hydrotech MyGeotab database using vehicle `COM092` and the previous calendar month:
 
 - Speeding: 3 events rendered with peak exceedances of `+11`, `+11`, and `+7 km/h`.
 - Idling: 74 events rendered with duration labels, including `6m 25s`, `18m 36s`, and `1h 18m`.
