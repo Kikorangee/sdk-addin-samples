@@ -1,10 +1,10 @@
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "items": [{
     
-    "url": "heatmap_v1_0_15.html",
+    "url": "heatmap_v1_0_16.html",
     "category": "SafetyId",
     "menuName": {
       "en": "Heat Map Analytics"

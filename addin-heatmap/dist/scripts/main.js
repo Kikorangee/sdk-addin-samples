@@ -92,16 +92,18 @@ geotab.addin.heatmap = function () {
   function updateMapEventTotal() {
     if (!elMapEventTotal) return;
     var bounds = map && map.getBounds ? map.getBounds() : null;
+    var exceptionMode = document.getElementById('visualizeByExceptionHistory') && document.getElementById('visualizeByExceptionHistory').checked;
     var visibleCount = 0;
     var totalCount = 0;
-    heatMapPoints.forEach(function (point) {
-      var weight = Number(point.value) || 1;
+    var countablePoints = exceptionMode ? metricMapData : heatMapPoints;
+    countablePoints.forEach(function (point) {
+      var weight = exceptionMode ? 1 : Number(point.value) || 1;
       totalCount += weight;
       if (!bounds || bounds.contains(new L.LatLng(point.lat, point.lon))) {
         visibleCount += weight;
       }
     });
-    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>events in view</span>' + '<small>' + formatNumber(totalCount) + ' total loaded</small>';
+    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + (exceptionMode ? 'exceptions' : 'GPS points') + ' in view</span>' + '<small>' + formatNumber(totalCount) + (exceptionMode ? ' mapped exceptions loaded' : ' GPS points loaded') + '</small>';
   }
   function setHeatMapPoints(points) {
     heatMapPoints = points || [];
@@ -318,6 +320,7 @@ geotab.addin.heatmap = function () {
     metricDetailsVisible = false;
     displayMetricLegend(metrics);
     renderMetricMarkers();
+    updateMapEventTotal();
   }
   function openCacheDb() {
     if (cacheDbPromise) return cacheDbPromise;
@@ -1233,9 +1236,11 @@ geotab.addin.heatmap = function () {
     setDatePreset('today');
     document.getElementById('visualizeByLocationHistory').addEventListener('click', function (event) {
       elExceptionTypes.disabled = true;
+      updateMapEventTotal();
     });
     document.getElementById('visualizeByExceptionHistory').addEventListener('click', function (event) {
       elExceptionTypes.disabled = false;
+      updateMapEventTotal();
     });
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();

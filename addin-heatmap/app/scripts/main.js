@@ -95,11 +95,14 @@ geotab.addin.heatmap = () => {
   function updateMapEventTotal() {
     if (!elMapEventTotal) return;
     const bounds = map && map.getBounds ? map.getBounds() : null;
+    const exceptionMode = document.getElementById('visualizeByExceptionHistory') &&
+      document.getElementById('visualizeByExceptionHistory').checked;
     let visibleCount = 0;
     let totalCount = 0;
 
-    heatMapPoints.forEach(point => {
-      const weight = Number(point.value) || 1;
+    const countablePoints = exceptionMode ? metricMapData : heatMapPoints;
+    countablePoints.forEach(point => {
+      const weight = exceptionMode ? 1 : (Number(point.value) || 1);
       totalCount += weight;
       if (!bounds || bounds.contains(new L.LatLng(point.lat, point.lon))) {
         visibleCount += weight;
@@ -107,8 +110,9 @@ geotab.addin.heatmap = () => {
     });
 
     elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' +
-      '<span>events in view</span>' +
-      '<small>' + formatNumber(totalCount) + ' total loaded</small>';
+      '<span>' + (exceptionMode ? 'exceptions' : 'GPS points') + ' in view</span>' +
+      '<small>' + formatNumber(totalCount) +
+      (exceptionMode ? ' mapped exceptions loaded' : ' GPS points loaded') + '</small>';
   }
 
   function setHeatMapPoints(points) {
@@ -335,6 +339,7 @@ geotab.addin.heatmap = () => {
     metricDetailsVisible = false;
     displayMetricLegend(metrics);
     renderMetricMarkers();
+    updateMapEventTotal();
   }
 
   function openCacheDb() {
@@ -1233,10 +1238,12 @@ geotab.addin.heatmap = () => {
 
     document.getElementById('visualizeByLocationHistory').addEventListener('click', event => {
       elExceptionTypes.disabled = true;
+      updateMapEventTotal();
     });
 
     document.getElementById('visualizeByExceptionHistory').addEventListener('click', event => {
       elExceptionTypes.disabled = false;
+      updateMapEventTotal();
     });
 
     document.getElementById('exceptionTypes').addEventListener('change', event => {
