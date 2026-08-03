@@ -970,48 +970,30 @@ geotab.addin.heatmap = () => {
     initialize(freshApi, state, callback) {
       api = freshApi;
 
-      const initializeWithLocation = () => {
-        const fallback = { longitude: 174.7633, latitude: -36.8485 };
-        let initialized = false;
-        const finish = coords => {
-          if (initialized) return;
-          initialized = true;
-          try {
-            initializeInterface(coords || fallback);
-            pruneCache();
-          } catch (error) {
-            console.error('Heat Map initialization failed:', error);
-          } finally {
-            callback();
-          }
-        };
-        if ('geolocation' in navigator) {
-          try {
-            navigator.geolocation.getCurrentPosition(
-              position => finish(position.coords),
-              error => {
-                console.warn('Location unavailable; using fallback:', error);
-                finish(fallback);
-              },
-              { timeout: 3000, maximumAge: 300000 }
-            );
-            // Some embedded browsers never resolve the geolocation request.
-            setTimeout(() => finish(fallback), 3500);
-          } catch (error) {
-            console.warn('Location request failed; using fallback:', error);
-            finish(fallback);
-          }
-        } else {
-          finish(fallback);
-        }
-      };
+      // Startup must never wait on geolocation or an API response. The map
+      // fits to returned fleet data when a heat map is generated, so a fixed
+      // initial centre is sufficient and avoids iframe permission deadlocks.
+      const fallback = { longitude: 174.7633, latitude: -36.8485 };
+      try {
+        initializeInterface(fallback);
+        pruneCache();
+      } catch (error) {
+        console.error('Heat Map initialization failed:', error);
+      } finally {
+        callback();
+      }
 
-      api.getSession(session => {
-        cacheSessionNamespace = [session.database || 'unknown-database',
-          session.userName || 'unknown-user'].join('|');
-        cacheNamespace = cacheSessionNamespace;
-        initializeWithLocation();
-      }, () => initializeWithLocation());
+      // Session details only namespace the optional browser cache. Resolve
+      // them after MyGeotab has been released from the loading state.
+      try {
+        api.getSession(session => {
+          cacheSessionNamespace = [session.database || 'unknown-database',
+            session.userName || 'unknown-user'].join('|');
+          cacheNamespace = cacheSessionNamespace;
+        }, () => undefined);
+      } catch (error) {
+        console.warn('Session details unavailable; using fallback cache namespace.', error);
+      }
 
     },
     focus(freshApi, freshState) {
