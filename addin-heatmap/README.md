@@ -1,6 +1,6 @@
 # Heat Map Add-In
 
-Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. It supports multiple vehicles, multiple exception rules, quick date ranges, event totals for the visible map area, and rule-specific metric labels.
+Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
 Current version: **1.0.13**
 
@@ -11,8 +11,9 @@ Current version: **1.0.13**
 - Multiple vehicle and exception-rule selection.
 - Quick ranges for today, yesterday, this week, last week, this month, and last month.
 - Event totals showing events currently in view and total records loaded.
-- Clickable event metric markers with vehicle, rule, timestamp, duration, and distance details.
-- A clean heat-map-first view with an optional event-details overlay in the legend.
+- A clean heat-map-first result with no markers obscuring the heat colouring.
+- A top-right legend showing each selected exception rule, colour, and event count.
+- An optional **Show event details** overlay with colour-coded dots, collision-limited labels, hover text, and clickable event information.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
 
@@ -57,10 +58,12 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 2. For exception history, select one or more rules using Ctrl/Command+Click.
 3. Select one or more vehicles.
 4. Choose a quick range or enter custom dates.
-5. Select **Show Heat Map**.
-6. Click a metric label to view its event details.
+5. Select **Show Results**.
+6. Review the heat-map intensity and exception counts in the top-right legend.
+7. Enable **Show event details** only when individual events need to be inspected.
+8. Hover over a coloured event dot for its rule and measurement, or click it for the vehicle, timestamp, duration, and distance.
 
-The Add-In limits a query to 100 vehicle/rule combinations and displays at most 500 metric markers. The heat layer still represents all returned log records within the configured API result limits.
+The Add-In limits a query to 100 vehicle/rule combinations and the optional overlay to 500 event markers. Persistent measurement labels are collision-limited and increase gradually as the map is zoomed in. The heat layer still represents all returned log records within the configured API result limits.
 
 ## Data and Permissions
 
@@ -83,6 +86,9 @@ Version 1.0.13 was tested in the Hydrotech MyGeotab database using vehicle `COM0
 - Idling: 74 events rendered with duration labels, including `6m 25s`, `18m 36s`, and `1h 18m`.
 - Harsh Braking (New): a measurable event rendered as `0.31 g`.
 - A sparse harsh-braking event correctly fell back to duration rather than displaying a false zero g-force value.
+- A combined Idling and Speeding query rendered 2,168 heat records while the default view contained zero event dots and zero measurement labels.
+- The legend correctly reported 74 Idling exceptions and 3 Speeding exceptions.
+- Enabling **Show event details** displayed all 77 colour-coded event dots with only six non-overlapping labels at the fitted zoom level; disabling it restored the clean heat map immediately without another API query.
 
 ## Project Structure
 
