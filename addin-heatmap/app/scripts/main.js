@@ -8,6 +8,7 @@ geotab.addin.heatmap = () => {
 
   let map;
   let heatMapLayer;
+  let heatMapPoints = [];
 
   let elExceptionTypes;
   let elVehicles;
@@ -17,6 +18,7 @@ geotab.addin.heatmap = () => {
   let elError;
   let elMessage;
   let elLoading;
+  let elMapEventTotal;
   let selectedVehicleCount;
   let myGeotabGetResultsLimit = 50000;
   let startTime;
@@ -84,6 +86,30 @@ geotab.addin.heatmap = () => {
    */
   function getElapsedTimeSeconds() {
     return Math.round((new Date() - startTime) / 1000);
+  }
+
+  function updateMapEventTotal() {
+    if (!elMapEventTotal) return;
+    const bounds = map && map.getBounds ? map.getBounds() : null;
+    let visibleCount = 0;
+    let totalCount = 0;
+
+    heatMapPoints.forEach(point => {
+      const weight = Number(point.value) || 1;
+      totalCount += weight;
+      if (!bounds || bounds.contains(new L.LatLng(point.lat, point.lon))) {
+        visibleCount += weight;
+      }
+    });
+
+    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' +
+      '<span>events in view</span>' +
+      '<small>' + formatNumber(totalCount) + ' total loaded</small>';
+  }
+
+  function setHeatMapPoints(points) {
+    heatMapPoints = points || [];
+    updateMapEventTotal();
   }
 
   function openCacheDb() {
@@ -448,6 +474,7 @@ geotab.addin.heatmap = () => {
         1.0: 'rgb(255,0,0)'
       }
     }).addTo(map);
+    setHeatMapPoints([]);
   }
 
   /**
@@ -564,8 +591,10 @@ geotab.addin.heatmap = () => {
 
       // Update map.
       if (coordinates.length > 0) {
+        setHeatMapPoints(coordinates);
         map.fitBounds(bounds);
         heatMapLayer.setLatLngs(coordinates);
+        updateMapEventTotal();
         messageHandler(`Displaying ${formatNumber(logRecordCount)} combined log records for the
         ${formatNumber(selectedVehicleCount)} selected vehicles. [${getElapsedTimeSeconds()} sec]`);
         if (exceededResultsLimitCount > 0) {
@@ -711,8 +740,10 @@ geotab.addin.heatmap = () => {
 
         // Update map.
         if (coordinates.length > 0) {
+          setHeatMapPoints(coordinates);
           map.fitBounds(bounds);
           heatMapLayer.setLatLngs(coordinates);
+          updateMapEventTotal();
 
           messageHandler(`Displaying ${formatNumber(logRecordCount)} combined log records associated with the
           ${formatNumber(exceptionEventCount)} '${ruleName}' rule exceptions found for the 
@@ -773,7 +804,9 @@ geotab.addin.heatmap = () => {
     }
     const bounds = data.points.map(point => new L.LatLng(point.lat, point.lon));
     map.fitBounds(bounds);
+    setHeatMapPoints(data.points);
     heatMapLayer.setLatLngs(data.points);
+    updateMapEventTotal();
     messageHandler(successMessage + ` Cache: ${formatNumber(data.cacheHits)} hit(s), ` +
       `${formatNumber(data.fetchedChunks)} fetched daily chunk(s). [${getElapsedTimeSeconds()} sec]`);
     if (data.truncatedChunks > 0) {
@@ -864,6 +897,10 @@ geotab.addin.heatmap = () => {
     elError = document.getElementById('error');
     elMessage = document.getElementById('message');
     elLoading = document.getElementById('loading');
+    elMapEventTotal = document.getElementById('map-event-total');
+
+    map.on('moveend zoomend', updateMapEventTotal);
+    updateMapEventTotal();
 
     const formatLocalDateTime = date => {
       const pad = value => String(value).padStart(2, '0');

@@ -2,6 +2,46 @@
     height: calc(100% + 40px);
 }
 
+#map-event-total {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1000;
+    min-width: 142px;
+    padding: 10px 14px;
+    border: 1px solid rgba(15, 23, 42, 0.15);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.94);
+    color: #172033;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+    text-align: right;
+    pointer-events: none;
+}
+
+#map-event-total strong,
+#map-event-total span,
+#map-event-total small {
+    display: block;
+}
+
+#map-event-total strong {
+    color: #087ca7;
+    font-size: 24px;
+    line-height: 1;
+}
+
+#map-event-total span {
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#map-event-total small {
+    margin-top: 4px;
+    color: #617083;
+    font-size: 11px;
+}
+
 .cssGrid,
 .cssGrid>div {
     height: 100%;
