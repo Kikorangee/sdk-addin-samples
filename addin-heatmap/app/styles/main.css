@@ -283,12 +283,13 @@ select.checkmateFormEditField {
 
   #printReportHeader p {
     margin: 0;
-    font-size: 9pt;
+    font-size: 10.5pt;
+    line-height: 1.35;
   }
 
   #printReportSummary {
     white-space: nowrap;
-    font-size: 12pt;
+    font-size: 13pt;
   }
 
   .cssGrid > div:last-child {
@@ -305,6 +306,8 @@ select.checkmateFormEditField {
     min-height: 0 !important;
     break-inside: avoid;
     page-break-inside: avoid;
+    box-sizing: border-box;
+    border: 1px solid #9eb6c8;
   }
 
   #heatmap-map,
