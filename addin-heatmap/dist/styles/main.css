@@ -202,6 +202,68 @@ select.checkmateFormEditField {
     background: #a71919;
 }
 
+.printPdfButton {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #0b6574;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0b6574;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.printPdfButton:hover,
+.printPdfButton:focus-visible {
+  background: #e9f5f7;
+}
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 8mm;
+  }
+
+  html,
+  body,
+  #heatmap,
+  .cssGrid {
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  #disclaimer,
+  .cssGrid > div:first-child,
+  .leaflet-control-zoom {
+    display: none !important;
+  }
+
+  .cssGrid > div:last-child {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    flex: 0 0 100% !important;
+  }
+
+  #heatmap-map {
+    width: 100% !important;
+    height: 180mm !important;
+    min-height: 180mm !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  #heatmap-map,
+  #heatmap-map * {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+}
+
 .selection-help {
     display: block;
     margin-top: 5px;
