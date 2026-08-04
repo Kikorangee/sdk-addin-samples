@@ -16,7 +16,7 @@
 
   <!-- build:css styles/main.css -->
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.21">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.22">
   <!-- endbuild -->
 
   <!-- build:js scripts/vendor.js -->
@@ -27,7 +27,7 @@
   <!-- endbuild -->
 
   <!-- build:js scripts/main.js -->
-  <script src="scripts/main.js?v=1.0.21"></script>
+  <script src="scripts/main.js?v=1.0.22"></script>
   <!-- endbuild -->
 </head>
 
@@ -62,14 +62,12 @@
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
 
           <label for="exceptionTypes">Rule(s):</label>
-          <select id="exceptionTypes" class="checkmateFormEditField" ng-mousedown="selectType($event)" multiple="true" size="7" disabled>
+          <select id="exceptionTypes" class="checkmateFormEditField multi-select-native" multiple disabled>
               <option disabled="disabled">Select one or more rules</option>
           </select>
-          <small class="selection-help">Use Ctrl/Cmd+Click to select multiple rules.</small>
 
           <label for="vehicles">Vehicle(s):</label>
-          <select id="vehicles" class="checkmateFormEditField" multiple="true"
-            ng-mousedown="selectType($event)">
+          <select id="vehicles" class="checkmateFormEditField multi-select-native" multiple>
           </select>
 
           <label for="from">From:</label>
@@ -111,11 +109,7 @@
               <li>Click the <i>Show Results</i> button to update the map.</li>
               <li>After applying any changes to the MyGeotab Groups Filter, refresh the page to apply the filter to the list of vehicles and repeat the above steps.</li>
             </ol>
-            <p>
-              When selecting vehicles, use CTRL+Click to select/deselect individual vehicles 
-              or SHIFT+Click to select a range of vehicles.  To select all vehicles in the
-              list, first select one and then use CTRL+A.
-            </p>
+            <p>Open a Rule or Vehicle dropdown and tick every item you want to include.</p>
   
           </div>
         </div>
