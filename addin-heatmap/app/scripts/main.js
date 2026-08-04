@@ -117,6 +117,13 @@ geotab.addin.heatmap = () => {
   }
 
   function preparePrintReport() {
+    if (!document.getElementById('printReportHeader')) {
+      const header = document.createElement('section');
+      header.id = 'printReportHeader';
+      header.innerHTML = '<div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>' +
+        '<strong id="printReportSummary"></strong>';
+      document.getElementById('heatmap').insertBefore(header, document.getElementById('heatmap').firstChild);
+    }
     const exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
     const selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(option => option.text);
     const selectedRules = Array.from(elExceptionTypes.selectedOptions || []).map(option => option.text);
