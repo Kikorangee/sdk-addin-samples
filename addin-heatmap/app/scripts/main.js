@@ -286,7 +286,9 @@ geotab.addin.heatmap = () => {
           ' force: ' + label;
         kind = 'force';
       } else {
-        detail = 'G-force unavailable from the GPS samples; duration: ' + label;
+        label = 'N/A';
+        detail = 'G-force unavailable from the GPS samples';
+        kind = 'unavailable';
       }
     }
 
@@ -361,14 +363,15 @@ geotab.addin.heatmap = () => {
         const radius = attempt === 0 ? 0 : 28 + Math.sqrt(attempt) * 18;
         const angle = attempt * Math.PI * (3 - Math.sqrt(5));
         const candidate = L.point(
-          Math.max(48, Math.min(mapSize.x - 48, point.x + Math.cos(angle) * radius)),
-          Math.max(18, Math.min(mapSize.y - 18, point.y + Math.sin(angle) * radius))
+          Math.max(70, Math.min(mapSize.x - 90, point.x + Math.cos(angle) * radius)),
+          Math.max(32, Math.min(mapSize.y - 38, point.y + Math.sin(angle) * radius))
         );
+        const blockedByLegend = candidate.x > mapSize.x - 220 && candidate.y < 150;
         const overlaps = acceptedLabelPoints.some(other =>
           Math.abs(other.x - candidate.x) < 88 && Math.abs(other.y - candidate.y) < 28
         );
         labelPoint = candidate;
-        if (!overlaps) break;
+        if (!overlaps && !blockedByLegend) break;
       }
       acceptedLabelPoints.push(labelPoint);
       const labelLatLng = map.containerPointToLatLng(labelPoint);

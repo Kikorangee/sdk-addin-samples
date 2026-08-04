@@ -263,7 +263,9 @@ geotab.addin.heatmap = function () {
         detail = 'Peak calculated ' + (lowerName.indexOf('corner') > -1 ? 'lateral' : 'longitudinal') + ' force: ' + label;
         kind = 'force';
       } else {
-        detail = 'G-force unavailable from the GPS samples; duration: ' + label;
+        label = 'N/A';
+        detail = 'G-force unavailable from the GPS samples';
+        kind = 'unavailable';
       }
     }
     var distance = Number(event.distance);
@@ -340,12 +342,13 @@ geotab.addin.heatmap = function () {
       for (var attempt = 0; attempt < 240; attempt++) {
         var radius = attempt === 0 ? 0 : 28 + Math.sqrt(attempt) * 18;
         var angle = attempt * Math.PI * (3 - Math.sqrt(5));
-        var candidate = L.point(Math.max(48, Math.min(mapSize.x - 48, point.x + Math.cos(angle) * radius)), Math.max(18, Math.min(mapSize.y - 18, point.y + Math.sin(angle) * radius)));
+        var candidate = L.point(Math.max(70, Math.min(mapSize.x - 90, point.x + Math.cos(angle) * radius)), Math.max(32, Math.min(mapSize.y - 38, point.y + Math.sin(angle) * radius)));
+        var blockedByLegend = candidate.x > mapSize.x - 220 && candidate.y < 150;
         var overlaps = acceptedLabelPoints.some(function (other) {
           return Math.abs(other.x - candidate.x) < 88 && Math.abs(other.y - candidate.y) < 28;
         });
         labelPoint = candidate;
-        if (!overlaps) break;
+        if (!overlaps && !blockedByLegend) break;
       }
       acceptedLabelPoints.push(labelPoint);
       var labelLatLng = map.containerPointToLatLng(labelPoint);
