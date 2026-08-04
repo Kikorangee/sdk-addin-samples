@@ -14,6 +14,8 @@ geotab.addin.heatmap = function () {
   var heatMapPoints = [];
   var elExceptionTypes;
   var elVehicles;
+  var ruleDropdown;
+  var vehicleDropdown;
   var elDateFromInput;
   var elDateToInput;
   var elShowHeatMap;
@@ -1218,6 +1220,101 @@ geotab.addin.heatmap = function () {
    * Intialize the user interface
    * @param {object} coords - An object with the latitude and longitude to render on the map.
    */
+  function enhanceMultiSelect(select, placeholder) {
+    var wrapper = document.createElement('div');
+    var toggle = document.createElement('button');
+    var panel = document.createElement('div');
+    var actions = document.createElement('div');
+    var optionList = document.createElement('div');
+    wrapper.className = 'multi-select-dropdown';
+    toggle.type = 'button';
+    toggle.className = 'multi-select-toggle';
+    toggle.setAttribute('aria-haspopup', 'listbox');
+    toggle.setAttribute('aria-expanded', 'false');
+    panel.className = 'multi-select-panel';
+    actions.className = 'multi-select-actions';
+    optionList.className = 'multi-select-option-list';
+    optionList.setAttribute('role', 'listbox');
+    optionList.setAttribute('aria-multiselectable', 'true');
+    var makeAction = function makeAction(text, selected) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = text;
+      button.addEventListener('click', function () {
+        Array.from(select.options).forEach(function (option) {
+          if (!option.disabled) option.selected = selected;
+        });
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        rebuild();
+      });
+      return button;
+    };
+    actions.appendChild(makeAction('Select all', true));
+    actions.appendChild(makeAction('Clear', false));
+    panel.appendChild(actions);
+    panel.appendChild(optionList);
+    wrapper.appendChild(toggle);
+    wrapper.appendChild(panel);
+    select.insertAdjacentElement('afterend', wrapper);
+    function close() {
+      wrapper.classList.remove('is-open');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    function rebuild() {
+      optionList.innerHTML = '';
+      var options = Array.from(select.options).filter(function (option) { return !option.disabled; });
+      var selected = options.filter(function (option) { return option.selected; });
+      toggle.disabled = select.disabled;
+      toggle.textContent = selected.length === 0 ? placeholder : selected.length === 1 ? selected[0].text : selected.length + ' selected';
+      if (select.disabled) close();
+      if (!options.length) {
+        var empty = document.createElement('div');
+        empty.className = 'multi-select-empty';
+        empty.textContent = 'No options available';
+        optionList.appendChild(empty);
+        return;
+      }
+      options.forEach(function (option) {
+        var label = document.createElement('label');
+        var checkbox = document.createElement('input');
+        var text = document.createElement('span');
+        label.className = 'multi-select-option';
+        checkbox.type = 'checkbox';
+        checkbox.checked = option.selected;
+        text.textContent = option.text;
+        checkbox.addEventListener('change', function () {
+          option.selected = checkbox.checked;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          rebuild();
+        });
+        label.appendChild(checkbox);
+        label.appendChild(text);
+        optionList.appendChild(label);
+      });
+    }
+    toggle.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var opening = !wrapper.classList.contains('is-open');
+      document.querySelectorAll('.multi-select-dropdown.is-open').forEach(function (dropdown) {
+        dropdown.classList.remove('is-open');
+        dropdown.querySelector('.multi-select-toggle').setAttribute('aria-expanded', 'false');
+      });
+      if (opening && !select.disabled) {
+        wrapper.classList.add('is-open');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    });
+    panel.addEventListener('click', function (event) { return event.stopPropagation(); });
+    select.addEventListener('change', rebuild);
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') close();
+    });
+    new MutationObserver(rebuild).observe(select, { childList: true, subtree: true, attributes: true });
+    rebuild();
+    return { rebuild: rebuild };
+  }
+
   var initializeInterface = function initializeInterface(coords) {
     // setup the map
     map = new L.Map('heatmap-map', {
@@ -1232,6 +1329,8 @@ geotab.addin.heatmap = function () {
     // find reused elements
     elExceptionTypes = document.getElementById('exceptionTypes');
     elVehicles = document.getElementById('vehicles');
+    ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
+    vehicleDropdown = enhanceMultiSelect(elVehicles, 'Select vehicles');
     elDateFromInput = document.getElementById('from');
     elDateToInput = document.getElementById('to');
     elShowHeatMap = document.getElementById('showHeatMap');
@@ -1299,10 +1398,12 @@ geotab.addin.heatmap = function () {
     setDatePreset('today');
     document.getElementById('visualizeByLocationHistory').addEventListener('click', function (event) {
       elExceptionTypes.disabled = true;
+      ruleDropdown.rebuild();
       updateMapEventTotal();
     });
     document.getElementById('visualizeByExceptionHistory').addEventListener('click', function (event) {
       elExceptionTypes.disabled = false;
+      ruleDropdown.rebuild();
       updateMapEventTotal();
     });
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
