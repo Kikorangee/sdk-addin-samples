@@ -107,6 +107,12 @@ geotab.addin.heatmap = function () {
     elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + (exceptionMode ? 'exceptions' : 'GPS points') + ' in view</span>' + '<small>' + formatNumber(totalCount) + (exceptionMode ? ' mapped exceptions loaded' : ' GPS points loaded') + '</small>';
   }
   function preparePrintReport() {
+    if (!document.getElementById('printReportHeader')) {
+      var header = document.createElement('section');
+      header.id = 'printReportHeader';
+      header.innerHTML = '<div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>' + '<strong id="printReportSummary"></strong>';
+      document.getElementById('heatmap').insertBefore(header, document.getElementById('heatmap').firstChild);
+    }
     var exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
     var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
       return option.text;
