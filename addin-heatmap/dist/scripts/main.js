@@ -271,11 +271,9 @@ geotab.addin.heatmap = function () {
     if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
     metricMarkerLayer = L.layerGroup().addTo(map);
     if (!metricMapData.length || !metricDetailsVisible) return;
-    var zoom = map.getZoom();
-    var labelLimit = zoom <= 8 ? 4 : zoom <= 10 ? 8 : zoom <= 12 ? 16 : 30;
     var acceptedLabelPoints = [];
-    var displayedLabels = 0;
-    metricMapData.slice(0, 500).forEach(function (metric) {
+    var mapSize = map.getSize();
+    metricMapData.forEach(function (metric) {
       if (!map.getBounds().contains(new L.LatLng(metric.lat, metric.lon))) return;
       var calloutText = metric.ruleName + " \u2192 " + metric.label;
       var dot = L.circleMarker([metric.lat, metric.lon], {
@@ -291,20 +289,34 @@ geotab.addin.heatmap = function () {
       });
       dot.bindPopup(metric.popup);
       dot.addTo(metricMarkerLayer);
-      if (displayedLabels >= labelLimit) return;
       var point = map.latLngToContainerPoint([metric.lat, metric.lon]);
-      var overlaps = acceptedLabelPoints.some(function (other) {
-        return Math.abs(other.x - point.x) < 95 && Math.abs(other.y - point.y) < 34;
-      });
-      if (overlaps) return;
-      acceptedLabelPoints.push(point);
-      displayedLabels++;
-      var marker = L.marker([metric.lat, metric.lon], {
+      var labelPoint = point;
+      for (var attempt = 0; attempt < 240; attempt++) {
+        var radius = attempt === 0 ? 0 : 28 + Math.sqrt(attempt) * 18;
+        var angle = attempt * Math.PI * (3 - Math.sqrt(5));
+        var candidate = L.point(Math.max(48, Math.min(mapSize.x - 48, point.x + Math.cos(angle) * radius)), Math.max(18, Math.min(mapSize.y - 18, point.y + Math.sin(angle) * radius)));
+        var overlaps = acceptedLabelPoints.some(function (other) {
+          return Math.abs(other.x - candidate.x) < 88 && Math.abs(other.y - candidate.y) < 28;
+        });
+        labelPoint = candidate;
+        if (!overlaps) break;
+      }
+      acceptedLabelPoints.push(labelPoint);
+      var labelLatLng = map.containerPointToLatLng(labelPoint);
+      if (labelPoint.distanceTo(point) > 8) {
+        L.polyline([[metric.lat, metric.lon], labelLatLng], {
+          color: metric.color,
+          weight: 1,
+          opacity: 0.75,
+          interactive: false
+        }).addTo(metricMarkerLayer);
+      }
+      var marker = L.marker(labelLatLng, {
         icon: L.divIcon({
           className: 'event-metric-marker event-metric-' + metric.kind,
           html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + '</span>',
           iconSize: [70, 30],
-          iconAnchor: [8, 36]
+          iconAnchor: [8, 15]
         })
       });
       marker.bindTooltip(calloutText, {
