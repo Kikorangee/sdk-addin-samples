@@ -27,13 +27,17 @@
   <!-- endbuild -->
 
   <!-- build:js scripts/main.js -->
-  <script src="scripts/main.js?v=1.0.18"></script>
+  <script src="scripts/main.js?v=1.0.19"></script>
   <!-- endbuild -->
 </head>
 
 <body>
   
   <div id="heatmap" style="height: calc(100%)">
+    <section id="printReportHeader">
+      <div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>
+      <strong id="printReportSummary"></strong>
+    </section>
     <div id="disclaimer">
       <label id="disclaimerLabel">Sample add-in/tool</label>
       <p>Twe may at any time,

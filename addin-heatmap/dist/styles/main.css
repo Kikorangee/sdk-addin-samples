@@ -219,6 +219,10 @@ select.checkmateFormEditField {
   background: #e9f5f7;
 }
 
+#printReportHeader {
+  display: none;
+}
+
 @media print {
   @page {
     size: landscape;
@@ -242,6 +246,32 @@ select.checkmateFormEditField {
     display: none !important;
   }
 
+  #printReportHeader {
+    display: flex !important;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 4mm !important;
+    padding: 0 0 3mm !important;
+    border-bottom: 1px solid #9eb6c8;
+    color: #17324d;
+  }
+
+  #printReportHeader h1 {
+    margin: 0 0 2mm;
+    font-size: 18pt;
+  }
+
+  #printReportHeader p {
+    margin: 0;
+    font-size: 9pt;
+  }
+
+  #printReportSummary {
+    white-space: nowrap;
+    font-size: 12pt;
+  }
+
   .cssGrid > div:last-child {
     display: block !important;
     width: 100% !important;
@@ -251,8 +281,8 @@ select.checkmateFormEditField {
 
   #heatmap-map {
     width: 100% !important;
-    height: 180mm !important;
-    min-height: 180mm !important;
+    height: 165mm !important;
+    min-height: 165mm !important;
     break-inside: avoid;
     page-break-inside: avoid;
   }

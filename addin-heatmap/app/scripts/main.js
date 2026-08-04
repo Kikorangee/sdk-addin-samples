@@ -26,6 +26,7 @@ geotab.addin.heatmap = () => {
   let selectedVehicleCount;
   let myGeotabGetResultsLimit = 50000;
   let startTime;
+  let printPreviousMetricDetails = null;
 
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
@@ -113,6 +114,43 @@ geotab.addin.heatmap = () => {
       '<span>' + (exceptionMode ? 'exceptions' : 'GPS points') + ' in view</span>' +
       '<small>' + formatNumber(totalCount) +
       (exceptionMode ? ' mapped exceptions loaded' : ' GPS points loaded') + '</small>';
+  }
+
+  function preparePrintReport() {
+    const exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
+    const selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(option => option.text);
+    const selectedRules = Array.from(elExceptionTypes.selectedOptions || []).map(option => option.text);
+    const pointTotal = (exceptionMode ? metricMapData : heatMapPoints).reduce((sum, point) =>
+      sum + (exceptionMode ? 1 : (Number(point.value) || 1)), 0);
+    const fromText = elDateFromInput.value ? new Date(elDateFromInput.value).toLocaleString() : 'Not set';
+    const toText = elDateToInput.value ? new Date(elDateToInput.value).toLocaleString() : 'Not set';
+    const subject = exceptionMode
+      ? (selectedRules.length ? selectedRules.join(', ') : 'Exception history')
+      : 'Location history';
+    document.getElementById('printReportFilters').textContent =
+      subject + ' | ' + selectedVehicles.length + ' vehicle' +
+      (selectedVehicles.length === 1 ? '' : 's') + ' | ' + fromText + ' to ' + toText +
+      ' | Generated ' + new Date().toLocaleString();
+    document.getElementById('printReportSummary').textContent =
+      formatNumber(pointTotal) + (exceptionMode ? ' mapped exceptions' : ' GPS points');
+
+    printPreviousMetricDetails = metricDetailsVisible;
+    if (exceptionMode && metricMapData.length) metricDetailsVisible = true;
+    map.invalidateSize({ animate: false, pan: false });
+    if (heatMapLayer && heatMapLayer.redraw) heatMapLayer.redraw();
+    renderMetricMarkers();
+    updateMapEventTotal();
+  }
+
+  function restoreAfterPrint() {
+    if (printPreviousMetricDetails !== null) {
+      metricDetailsVisible = printPreviousMetricDetails;
+      printPreviousMetricDetails = null;
+    }
+    map.invalidateSize({ animate: false, pan: false });
+    if (heatMapLayer && heatMapLayer.redraw) heatMapLayer.redraw();
+    renderMetricMarkers();
+    updateMapEventTotal();
   }
 
   function setHeatMapPoints(points) {
@@ -1191,6 +1229,8 @@ geotab.addin.heatmap = () => {
     elMessage = document.getElementById('message');
     elLoading = document.getElementById('loading');
     elMapEventTotal = document.getElementById('map-event-total');
+    window.addEventListener('beforeprint', preparePrintReport);
+    window.addEventListener('afterprint', restoreAfterPrint);
 
     map.on('moveend zoomend', () => {
       updateMapEventTotal();
