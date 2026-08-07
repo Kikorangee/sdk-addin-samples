@@ -1,9 +1,9 @@
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.16",
+  "version": "1.0.23",
   "items": [{
-    "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap_v1_0_16.html",
+    "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap_v1_0_23.html",
     "category": "SafetyId",
     "menuName": {
       "en": "Heat Map Analytics"

@@ -1008,7 +1008,6 @@ geotab.addin.heatmap = function () {
       // Build array of calls to get LogRecords associated with the devices
       // associated with the returned ExceptionEvents during the timeframes
       // of the ExceptionEvents.
-      var exceptionEventCount = 0;
       var exceededResultsLimitCountForExceptionEvents = 0;
       var calls = [];
       var eventInfos = [];
@@ -1024,7 +1023,6 @@ geotab.addin.heatmap = function () {
           }
         }
         for (var _j = 0; _j < exceptionEvents.length; _j++) {
-          exceptionEventCount++;
           eventInfos.push({
             event: exceptionEvents[_j],
             rule: selectedRules[ruleIndex],
@@ -1082,17 +1080,13 @@ geotab.addin.heatmap = function () {
           });
         });
         var metrics = [];
-        // Build coordinates and bounds.
+        // Build one metric and one heat point per mapped ExceptionEvent.
+        // LogRecords are used only to locate the event and calculate its metric;
+        // they must not independently increase exception heat intensity.
         for (var _i6 = 0, _len2 = logResults.length; _i6 < _len2; _i6++) {
           var logRecords = logResults[_i6];
           for (var _j2 = 0; _j2 < logRecords.length; _j2++) {
             if (logRecords[_j2].latitude !== 0 || logRecords[_j2].longitude !== 0) {
-              coordinates.push({
-                lat: logRecords[_j2].latitude,
-                lon: logRecords[_j2].longitude,
-                value: 1
-              });
-              bounds.push(new L.LatLng(logRecords[_j2].latitude, logRecords[_j2].longitude));
               logRecordCount++;
             }
           }
@@ -1101,7 +1095,15 @@ geotab.addin.heatmap = function () {
           }
           var eventInfo = eventInfos[_i6];
           var metric = buildEventMetric(eventInfo, logRecords, roadByDevice[eventInfo.event.device.id] || []);
-          if (metric) metrics.push(metric);
+          if (metric) {
+            metrics.push(metric);
+            coordinates.push({
+              lat: metric.lat,
+              lon: metric.lon,
+              value: 1
+            });
+            bounds.push(new L.LatLng(metric.lat, metric.lon));
+          }
         }
 
         // Update map.
@@ -1111,7 +1113,7 @@ geotab.addin.heatmap = function () {
           heatMapLayer.setLatLngs(coordinates);
           displayMetricMarkers(metrics);
           updateMapEventTotal();
-          messageHandler("Displaying ".concat(formatNumber(logRecordCount), " combined log records associated with the\n          ").concat(formatNumber(exceptionEventCount), " exceptions across ").concat(formatNumber(selectedRules.length), " selected rules for the\n          ").concat(formatNumber(selectedVehicleCount), " selected vehicles. [").concat(getElapsedTimeSeconds(), " sec]"));
+          messageHandler("Displaying event-based heat from ".concat(formatNumber(metrics.length), " mapped exceptions\n          (").concat(formatNumber(logRecordCount), " supporting GPS records) across ").concat(formatNumber(selectedRules.length), " selected rules for the\n          ").concat(formatNumber(selectedVehicleCount), " selected vehicles. [").concat(getElapsedTimeSeconds(), " sec]"));
 
           // Build the error message if result limit(s) exceeded.
           if (exceededResultsLimitCountForExceptionEvents > 0 || exceededResultsLimitCountForLogRecords > 0) {
