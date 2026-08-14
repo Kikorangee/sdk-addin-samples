@@ -1450,24 +1450,36 @@ geotab.addin.heatmap = function () {
     return { rebuild: rebuild };
   }
 
-  function populateVehicleOptions(selectGroupVehicles) {
-    var selectedGroupIds = selectedValues(elVehicleGroups);
+  function populateVehicleOptions(vehicles, selectVehicles) {
     var previouslySelected = selectedValues(elVehicles);
     while (elVehicles.options.length) elVehicles.remove(0);
-    allVehicles.filter(function (vehicle) {
-      if (!selectedGroupIds.length) return true;
-      var vehicleGroupIds = (vehicle.groups || []).map(function (group) {
-        return group.id || group;
-      });
-      return selectedGroupIds.some(function (groupId) {
-        return vehicleGroupIds.indexOf(groupId) !== -1;
-      });
-    }).forEach(function (vehicle) {
+    (vehicles || []).sort(sortByName).forEach(function (vehicle) {
       var option = new Option(vehicle.name, vehicle.id);
-      option.selected = (selectedGroupIds.length > 0 && selectGroupVehicles) || previouslySelected.indexOf(vehicle.id) !== -1;
+      option.selected = selectVehicles || previouslySelected.indexOf(vehicle.id) !== -1;
       elVehicles.add(option);
     });
     vehicleDropdown.rebuild();
+  }
+  function loadVehiclesForSelectedGroups() {
+    var groupIds = selectedValues(elVehicleGroups);
+    if (!groupIds.length) {
+      populateVehicleOptions(allVehicles, false);
+      return;
+    }
+    var calls = groupIds.map(function (groupId) {
+      return ['Get', {
+        typeName: 'Device',
+        resultsLimit: 50000,
+        search: { groups: [{ id: groupId }] }
+      }];
+    });
+    api.multiCall(calls, function (results) {
+      var byId = {};
+      (results || []).forEach(function (devices) {
+        (devices || []).forEach(function (device) { byId[device.id] = device; });
+      });
+      populateVehicleOptions(Object.keys(byId).map(function (id) { return byId[id]; }), true);
+    }, errorHandler);
   }
 
   var initializeInterface = function initializeInterface(coords) {
@@ -1571,9 +1583,7 @@ geotab.addin.heatmap = function () {
       updateMapEventTotal();
     });
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
-    elVehicleGroups.addEventListener('change', function () {
-      populateVehicleOptions(true);
-    });
+    elVehicleGroups.addEventListener('change', loadVehiclesForSelectedGroups);
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();
     });
@@ -1658,7 +1668,7 @@ geotab.addin.heatmap = function () {
           return;
         }
         allVehicles = vehicles.sort(sortByName);
-        populateVehicleOptions();
+        populateVehicleOptions(allVehicles, false);
       }, errorHandler);
 
       // Populate vehicle groups used to narrow the vehicle selector.
