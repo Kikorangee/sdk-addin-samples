@@ -17,7 +17,7 @@
 
 <body>
   
-  <div id="heatmap" style="height: calc(100%)">
+  <div id="heatmap">
     <section id="printReportHeader">
       <div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>
       <strong id="printReportSummary"></strong>
@@ -37,8 +37,8 @@
           <label for="to">To:</label>
           <input id="to" type="datetime-local" class="checkmateFormEditField" />
         </div>
-        <fieldset class="date-presets">
-          <legend>Quick time range</legend>
+        <div class="date-presets" role="group" aria-labelledby="date-presets-label">
+          <span class="date-presets-label" id="date-presets-label">Quick time range</span>
           <div class="date-preset-grid">
             <button type="button" class="date-preset" data-range="today">Today</button>
             <button type="button" class="date-preset" data-range="yesterday">Yesterday</button>
@@ -47,7 +47,18 @@
             <button type="button" class="date-preset" data-range="thisMonth">This month</button>
             <button type="button" class="date-preset" data-range="lastMonth">Last month</button>
           </div>
-        </fieldset>
+        </div>
+      </div>
+      <div id="mapActions">
+        <div class="map-action-buttons">
+          <button type="button" id="showHeatMap">Show Results</button>
+          <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
+          <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
+        </div>
+        <div class="map-action-status">
+          <div id="error"></div>
+          <div id="message"></div>
+        </div>
       </div>
       <div id="map-event-total" role="status" aria-live="polite">
         <strong>0</strong><span>events in view</span><small>0 total loaded</small>
@@ -94,6 +105,19 @@
           <select id="zones" class="checkmateFormEditField multi-select-native" multiple></select>
           <small class="control-help">Leave groups or zones clear to include all available vehicles or locations.</small>
 
+          <details class="map-instructions">
+            <summary id="instructions-title">Instructions</summary>
+            <ol>
+              <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
+              <li>If visualizing by exception history, select one or more rules to search.</li>
+              <li>Optionally select a group type and vehicle group, then select the vehicle(s) to search.</li>
+              <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
+              <li>In exception history, untick <i>Show heatmap layer</i> to keep exception data and event details without heat colouring.</li>
+              <li>Specify a date/time range and click <i>Show Results</i>.</li>
+              <li>Use <i>Refresh data</i> after changing the MyGeotab Groups Filter or when fleet data changes.</li>
+              <li>Open a Rule or Vehicle dropdown and tick every item you want to include.</li>
+            </ol>
+          </details>
         </div>
       </div>
       <div class="lg-part-10 md-part-9 sm-part-12 map-column">
@@ -105,30 +129,6 @@
               <div></div>
             </div>
           </div>
-          <div id="mapActions">
-            <div class="map-action-buttons">
-              <button type="button" id="showHeatMap">Show Results</button>
-              <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
-              <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
-            </div>
-            <div class="map-action-status">
-              <div id="error"></div>
-              <div id="message"></div>
-            </div>
-          </div>
-          <section class="map-instructions" aria-labelledby="instructions-title">
-            <h3 id="instructions-title">Instructions</h3>
-            <ol>
-              <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
-              <li>If visualizing by exception history, select one or more rules to search.</li>
-              <li>Optionally select a group type and vehicle group, then select the vehicle(s) to search.</li>
-              <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
-              <li>In exception history, untick <i>Show heatmap layer</i> to keep exception data and event details without heat colouring.</li>
-              <li>Specify a date/time range and click <i>Show Results</i>.</li>
-              <li>Use <i>Refresh data</i> after changing the MyGeotab Groups Filter or when fleet data changes.</li>
-            </ol>
-            <p>Open a Rule or Vehicle dropdown and tick every item you want to include.</p>
-          </section>
         </div>
     </div>
   </div>

@@ -796,3 +796,86 @@ body,
 .map-action-status #message {
     margin: 0;
 }
+
+/* Single-page view: the Add-In fills the viewport and only the controls column
+   scrolls, so the top bar and map are always visible without page scrolling. */
+#heatmap {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#disclaimer,
+#topBar {
+    flex: 0 0 auto;
+}
+
+#heatmap > .cssGrid {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+}
+
+#heatmap > .cssGrid > div {
+    height: 100% !important;
+    min-height: 0;
+}
+
+/* position: relative keeps the visually-hidden native selects inside the scroll
+   container instead of letting them stretch the document. */
+#controls {
+    position: relative;
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+.map-column {
+    display: flex;
+    flex-direction: column;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden;
+}
+
+#heatmap-map {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+}
+
+/* Instructions collapse into the controls column so they never add page height. */
+details.map-instructions {
+    margin: 18px 0 0;
+    padding: 10px 12px;
+    border: 1px solid #1d4a80;
+    border-top: 1px solid #1d4a80;
+    border-radius: 6px;
+    background: #17395f;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+details.map-instructions > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+details.map-instructions ol {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}
+
+/* Quick ranges: plain block instead of a fieldset, which MyGeotab's stylesheet
+   renders with an overlapping border and floating legend. */
+.date-presets-label {
+    display: block;
+    padding: 0 0 3px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+#topBar .date-preset-grid {
+    grid-template-columns: repeat(3, minmax(74px, 1fr));
+}

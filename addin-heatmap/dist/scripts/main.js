@@ -1560,6 +1560,27 @@ geotab.addin.heatmap = function () {
     document.body.insertBefore(banner, document.body.firstChild);
     return new Error(message);
   };
+  // Fit the Add-In to whatever space MyGeotab leaves below its own header so the
+  // controls, top bar and map are all visible without scrolling the page.
+  var fitToViewport = function fitToViewport() {
+    var root = document.getElementById('heatmap');
+    if (!root) {
+      return;
+    }
+    var available = Math.max(window.innerHeight - root.getBoundingClientRect().top, 420);
+    root.style.height = Math.round(available) + 'px';
+    // Trim whatever still overflows (page margins, siblings) so nothing scrolls.
+    var overflow = document.documentElement.scrollHeight - window.innerHeight;
+    if (overflow > 0) {
+      root.style.height = Math.round(Math.max(available - overflow, 420)) + 'px';
+    }
+    if (map) {
+      map.invalidateSize({
+        animate: false,
+        pan: false
+      });
+    }
+  };
   var initializeInterface = function initializeInterface(coords) {
     var missingIds = requiredElementIds.filter(function (id) {
       return !document.getElementById(id);
@@ -1601,6 +1622,8 @@ geotab.addin.heatmap = function () {
     elMapEventTotal = document.getElementById('map-event-total');
     window.addEventListener('beforeprint', preparePrintReport);
     window.addEventListener('afterprint', restoreAfterPrint);
+    window.addEventListener('resize', fitToViewport);
+    fitToViewport();
     map.on('moveend zoomend', function () {
       updateMapEventTotal();
       renderMetricMarkers();
@@ -1859,6 +1882,7 @@ geotab.addin.heatmap = function () {
         });
       }, errorHandler);
       setTimeout(function () {
+        fitToViewport();
         map.invalidateSize();
       }, 200);
     },

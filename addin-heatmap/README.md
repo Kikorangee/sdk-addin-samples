@@ -14,7 +14,8 @@ Current version: **1.0.31**
 - A clean heat-map-first result with no markers obscuring the heat colouring.
 - A top-right legend showing each selected exception rule and its event count.
 - An optional **Show event details** overlay whose dots, labels, and callout lines use each vehicle's colour from the vehicle legend, with collision-limited labels, hover text, and clickable event information.
-- A top bar holding the date range, quick ranges, and the event totals readout.
+- A top bar holding the date range, quick ranges, the action buttons, the status line, and the event totals readout.
+- A single-page layout that fits the viewport: only the controls column scrolls, and the map fills the remaining height.
 - A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
