@@ -15,10 +15,12 @@ geotab.addin.heatmap = function () {
   var heatMapPoints = [];
   var elExceptionTypes;
   var elShowExceptionHeatMap;
+  var elGroupTypes;
   var elVehicleGroups;
   var elVehicles;
   var elZones;
   var ruleDropdown;
+  var groupTypeDropdown;
   var vehicleGroupDropdown;
   var vehicleDropdown;
   var zoneDropdown;
@@ -34,7 +36,11 @@ geotab.addin.heatmap = function () {
   var startTime;
   var printPreviousMetricDetails = null;
   var allVehicles = [];
+  var availableGroups = [];
+  var groupById = {};
+  var parentByGroupId = {};
   var availableZones = [];
+  var legendVehicleIds = {};
 
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
@@ -272,18 +278,27 @@ geotab.addin.heatmap = function () {
     var hue = Math.round(index * 137.508 % 360);
     return 'hsl(' + hue + ', 70%, 40%)';
   }
+  function rememberSelectedVehiclesInLegend() {
+    selectedValues(elVehicles).forEach(function (id) {
+      legendVehicleIds[id] = true;
+    });
+  }
   function displayVehicleLegend() {
     if (vehicleLegendControl) map.removeControl(vehicleLegendControl);
-    var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
-      return { id: option.value, name: option.text, color: colorForVehicleId(option.value) };
+    var selectedLookup = {};
+    selectedValues(elVehicles).forEach(function (id) { selectedLookup[id] = true; });
+    var legendVehicles = allVehicles.filter(function (vehicle) {
+      return legendVehicleIds[vehicle.id] === true;
+    }).map(function (vehicle) {
+      return { id: vehicle.id, name: vehicle.name, color: colorForVehicleId(vehicle.id), selected: selectedLookup[vehicle.id] === true };
     });
-    if (!selectedVehicles.length) return;
+    if (!legendVehicles.length) return;
     vehicleLegendControl = L.control({ position: 'bottomleft' });
     vehicleLegendControl.onAdd = function () {
       var element = L.DomUtil.create('div', 'vehicle-legend');
-      element.innerHTML = '<strong>Vehicles</strong>' + selectedVehicles.map(function (vehicle) {
-        return '<label><input type="checkbox" value="' + escapeHtml(vehicle.id) + '" checked><i style="background:' + vehicle.color + '"></i><span>' + escapeHtml(vehicle.name) + '</span></label>';
-      }).join('') + '<small>Untick a vehicle to remove it from these results.</small>';
+      element.innerHTML = '<strong>Vehicles</strong>' + legendVehicles.map(function (vehicle) {
+        return '<label><input type="checkbox" value="' + escapeHtml(vehicle.id) + '"' + (vehicle.selected ? ' checked' : '') + '><i style="background:' + vehicle.color + '"></i><span>' + escapeHtml(vehicle.name) + '</span></label>';
+      }).join('') + '<small>Tick or untick vehicles to update these results.</small>';
       L.DomEvent.disableClickPropagation(element);
       L.DomEvent.disableScrollPropagation(element);
       Array.from(element.querySelectorAll('input')).forEach(function (checkbox) {
@@ -946,6 +961,7 @@ geotab.addin.heatmap = function () {
       errorHandler('Please select at least one vehicle from the list and try again.');
       return;
     }
+    rememberSelectedVehiclesInLegend();
     displayVehicleLegend();
     startTime = new Date();
     if (elExceptionTypes.disabled === true) {
@@ -1460,26 +1476,55 @@ geotab.addin.heatmap = function () {
     });
     vehicleDropdown.rebuild();
   }
+  function descendantGroupIds(groupIds) {
+    var seen = {};
+    var pending = (groupIds || []).slice();
+    while (pending.length) {
+      var id = pending.pop();
+      if (!id || seen[id]) continue;
+      seen[id] = true;
+      var group = groupById[id];
+      (group && group.children || []).forEach(function (child) {
+        pending.push(child.id || child);
+      });
+    }
+    return Object.keys(seen);
+  }
+  function populateVehicleGroupOptions() {
+    var selectedTypeIds = selectedValues(elGroupTypes);
+    var previousGroupIds = selectedValues(elVehicleGroups);
+    var allowedIds = selectedTypeIds.length ? descendantGroupIds(selectedTypeIds) : [];
+    while (elVehicleGroups.options.length) elVehicleGroups.remove(0);
+    availableGroups.filter(function (group) {
+      if (!/\sPREFIX$/i.test(group.name || '')) return false;
+      return !selectedTypeIds.length || allowedIds.indexOf(group.id) !== -1;
+    }).sort(sortByName).forEach(function (group) {
+      var option = new Option(group.name, group.id);
+      option.selected = previousGroupIds.indexOf(group.id) !== -1;
+      elVehicleGroups.add(option);
+    });
+    vehicleGroupDropdown.rebuild();
+  }
   function loadVehiclesForSelectedGroups() {
-    var groupIds = selectedValues(elVehicleGroups);
-    if (!groupIds.length) {
+    legendVehicleIds = {};
+    var selectedGroupIds = selectedValues(elVehicleGroups);
+    var selectedTypeIds = selectedValues(elGroupTypes);
+    var branchIds = descendantGroupIds(selectedGroupIds.length ? selectedGroupIds : selectedTypeIds);
+    if (!branchIds.length) {
       populateVehicleOptions(allVehicles, false);
+      displayVehicleLegend();
       return;
     }
-    var calls = groupIds.map(function (groupId) {
-      return ['Get', {
-        typeName: 'Device',
-        resultsLimit: 50000,
-        search: { groups: [{ id: groupId }] }
-      }];
-    });
-    api.multiCall(calls, function (results) {
-      var byId = {};
-      (results || []).forEach(function (devices) {
-        (devices || []).forEach(function (device) { byId[device.id] = device; });
+    var branchLookup = {};
+    branchIds.forEach(function (id) { branchLookup[id] = true; });
+    var matchingVehicles = allVehicles.filter(function (vehicle) {
+      return (vehicle.groups || []).some(function (group) {
+        return branchLookup[group.id || group] === true;
       });
-      populateVehicleOptions(Object.keys(byId).map(function (id) { return byId[id]; }), true);
-    }, errorHandler);
+    });
+    populateVehicleOptions(matchingVehicles, true);
+    rememberSelectedVehiclesInLegend();
+    displayVehicleLegend();
   }
 
   var initializeInterface = function initializeInterface(coords) {
@@ -1496,10 +1541,12 @@ geotab.addin.heatmap = function () {
     // find reused elements
     elExceptionTypes = document.getElementById('exceptionTypes');
     elShowExceptionHeatMap = document.getElementById('showExceptionHeatMap');
+    elGroupTypes = document.getElementById('groupTypes');
     elVehicleGroups = document.getElementById('vehicleGroups');
     elVehicles = document.getElementById('vehicles');
     elZones = document.getElementById('zones');
     ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
+    groupTypeDropdown = enhanceMultiSelect(elGroupTypes, 'All group types');
     vehicleGroupDropdown = enhanceMultiSelect(elVehicleGroups, 'All vehicle groups');
     vehicleDropdown = enhanceMultiSelect(elVehicles, 'Select vehicles');
     zoneDropdown = enhanceMultiSelect(elZones, 'All zones');
@@ -1583,12 +1630,18 @@ geotab.addin.heatmap = function () {
       updateMapEventTotal();
     });
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
+    elGroupTypes.addEventListener('change', function () {
+      populateVehicleGroupOptions();
+      loadVehiclesForSelectedGroups();
+    });
     elVehicleGroups.addEventListener('change', loadVehiclesForSelectedGroups);
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();
     });
     document.getElementById('vehicles').addEventListener('change', function (event) {
       event.preventDefault();
+      rememberSelectedVehiclesInLegend();
+      displayVehicleLegend();
     });
     document.getElementById('from').addEventListener('change', function (event) {
       event.preventDefault();
@@ -1599,6 +1652,10 @@ geotab.addin.heatmap = function () {
     document.getElementById('showHeatMap').addEventListener('click', function (event) {
       event.preventDefault();
       displayHeatMap();
+    });
+    document.getElementById('refreshAddIn').addEventListener('click', function (event) {
+      event.preventDefault();
+      window.location.reload();
     });
   };
 
@@ -1649,10 +1706,14 @@ geotab.addin.heatmap = function () {
       // Focus can run again after the MyGeotab group filter changes. Rebuild the
       // options rather than retaining vehicles/rules from the previous scope.
       while (elVehicles.options.length) elVehicles.remove(0);
+      while (elGroupTypes.options.length) elGroupTypes.remove(0);
       while (elVehicleGroups.options.length) elVehicleGroups.remove(0);
       while (elZones.options.length) elZones.remove(0);
       while (elExceptionTypes.options.length > 1) elExceptionTypes.remove(1);
       allVehicles = [];
+      availableGroups = [];
+      groupById = {};
+      parentByGroupId = {};
       availableZones = [];
 
       // Populate vehicles list.
@@ -1671,17 +1732,37 @@ geotab.addin.heatmap = function () {
         populateVehicleOptions(allVehicles, false);
       }, errorHandler);
 
-      // Populate vehicle groups used to narrow the vehicle selector.
+      // Reconstruct Geotab's group hierarchy from each Group.children list.
+      // Parents of "... PREFIX" groups are exposed as selectable group types.
       api.call('Get', {
         typeName: 'Group',
         resultsLimit: 50000
       }, function (groups) {
-        (groups || []).filter(function (group) {
+        availableGroups = (groups || []).filter(function (group) {
           return group && group.id && group.name;
-        }).sort(sortByName).forEach(function (group) {
-          elVehicleGroups.add(new Option(group.name, group.id));
         });
-        vehicleGroupDropdown.rebuild();
+        availableGroups.forEach(function (group) {
+          groupById[group.id] = group;
+        });
+        availableGroups.forEach(function (parent) {
+          (parent.children || []).forEach(function (child) {
+            parentByGroupId[child.id || child] = parent.id;
+          });
+        });
+        var typeIds = {};
+        availableGroups.filter(function (group) {
+          return /\sPREFIX$/i.test(group.name || '');
+        }).forEach(function (group) {
+          var parentId = parentByGroupId[group.id];
+          if (parentId && groupById[parentId]) typeIds[parentId] = true;
+        });
+        Object.keys(typeIds).map(function (id) {
+          return groupById[id];
+        }).sort(sortByName).forEach(function (group) {
+          elGroupTypes.add(new Option(group.name, group.id));
+        });
+        groupTypeDropdown.rebuild();
+        populateVehicleGroupOptions();
       }, errorHandler);
 
       // Populate zones. Selected zones are applied client-side to both GPS heat
