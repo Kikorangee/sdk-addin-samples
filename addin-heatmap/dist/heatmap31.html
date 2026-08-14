@@ -94,12 +94,6 @@
           <select id="zones" class="checkmateFormEditField multi-select-native" multiple></select>
           <small class="control-help">Leave groups or zones clear to include all available vehicles or locations.</small>
 
-          <div style="margin:1em"></div>
-          <button type="button" id="showHeatMap">Show Results</button>
-          <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
-          <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
-          <div id="error"></div>
-          <div id="message"></div>
         </div>
       </div>
       <div class="lg-part-10 md-part-9 sm-part-12 map-column">
@@ -109,6 +103,17 @@
             </div>
             <div id="loading" class="loading-progress" role="progressbar" aria-label="Map data progress" aria-busy="false" aria-valuetext="Ready">
               <div></div>
+            </div>
+          </div>
+          <div id="mapActions">
+            <div class="map-action-buttons">
+              <button type="button" id="showHeatMap">Show Results</button>
+              <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
+              <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
+            </div>
+            <div class="map-action-status">
+              <div id="error"></div>
+              <div id="message"></div>
             </div>
           </div>
           <section class="map-instructions" aria-labelledby="instructions-title">
