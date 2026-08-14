@@ -12,8 +12,10 @@ Current version: **1.0.31**
 - Quick ranges for today, yesterday, this week, last week, this month, and last month.
 - Event totals showing events currently in view and total records loaded.
 - A clean heat-map-first result with no markers obscuring the heat colouring.
-- A top-right legend showing each selected exception rule, colour, and event count.
-- An optional **Show event details** overlay with colour-coded dots, collision-limited labels, hover text, and clickable event information.
+- A top-right legend showing each selected exception rule and its event count.
+- An optional **Show event details** overlay whose dots, labels, and callout lines use each vehicle's colour from the vehicle legend, with collision-limited labels, hover text, and clickable event information.
+- A top bar holding the date range, quick ranges, and the event totals readout.
+- A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
 - Direct Track branding in the map's top-right corner.

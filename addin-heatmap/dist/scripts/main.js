@@ -286,11 +286,6 @@ geotab.addin.heatmap = function () {
     while (value < -Math.PI) value += 2 * Math.PI;
     return value;
   }
-  function colorForRuleIndex(ruleIndex) {
-    // Golden-angle spacing guarantees adjacent selected rules use different hues.
-    var hue = Math.round(Number(ruleIndex) * 137.508 % 360);
-    return 'hsl(' + hue + ', 72%, 42%)';
-  }
   function colorForVehicleId(vehicleId) {
     var index = allVehicles.findIndex(function (vehicle) {
       return vehicle.id === vehicleId;
@@ -436,7 +431,6 @@ geotab.addin.heatmap = function () {
       if (!seen[metric.ruleName]) {
         seen[metric.ruleName] = {
           name: metric.ruleName,
-          color: metric.color,
           count: 0
         };
         rules.push(seen[metric.ruleName]);
@@ -450,8 +444,8 @@ geotab.addin.heatmap = function () {
     metricLegendControl.onAdd = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
-        return '<span><i style="background:' + rule.color + '"></i>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Each selected exception rule has a different colour. Heat colouring can be toggled separately in the Exceptions controls.</small>';
+        return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
+      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend. Heat colouring can be toggled separately in the Exceptions controls.</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -1186,7 +1180,7 @@ geotab.addin.heatmap = function () {
           eventInfos.push({
             event: exceptionEvents[_j],
             rule: selectedRules[ruleIndex],
-            color: colorForRuleIndex(ruleIndex),
+            color: colorForVehicleId(deviceIds[deviceIndex]),
             vehicleName: vehicleName
           });
           calls.push(['Get', {
