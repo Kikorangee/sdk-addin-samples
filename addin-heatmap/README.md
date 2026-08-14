@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.23**
+Current version: **1.0.31**
 
 ## Features
 
@@ -38,10 +38,10 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.23",
+  "version": "1.0.31",
   "items": [
     {
-      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap_v1_0_23.html",
+      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",
       "category": "SafetyId",
       "menuName": {
         "en": "Heat Map Analytics"
@@ -52,6 +52,10 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
   "isSigned": false
 }
 ```
+
+## Upgrading
+
+`dist/scripts/main.js` is shared by every `dist/heatmap*.html` page and expects the controls of the current page. After deploying a new page, update the `url` in the MyGeotab Add-In configuration to match, then hard-refresh MyGeotab. An older page left in the configuration loads but cannot bind its controls; it now shows an out-of-date banner naming the missing controls instead of failing silently.
 
 ## Usage
 

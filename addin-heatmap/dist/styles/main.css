@@ -587,3 +587,14 @@ ol {
     color: #fff;
     font-weight: 600;
 }
+
+.heatmap-unsupported-page {
+    margin: 8px;
+    padding: 10px 12px;
+    border: 1px solid #d0021b;
+    border-radius: 5px;
+    background: #fdecee;
+    color: #8a0011;
+    font-size: 13px;
+    line-height: 1.4;
+}

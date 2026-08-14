@@ -5,6 +5,7 @@ geotab.addin.heatmap = function () {
   'use strict';
 
   var api;
+  var interfaceReady = false;
   var map;
   var heatMapLayer;
   var metricMarkerLayer;
@@ -1551,7 +1552,28 @@ geotab.addin.heatmap = function () {
     displayVehicleLegend();
   }
 
+  // Every element this script binds to. MyGeotab keeps the Add-In URL from its
+  // System Settings configuration, so an outdated page can be served alongside
+  // the current script. Reporting the missing ids makes that visible instead of
+  // leaving a loaded but inert Add-In.
+  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'showExceptionHeatMap', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
+  var reportUnsupportedPage = function reportUnsupportedPage(missingIds) {
+    var message = 'This Heat Map page is out of date and is missing: ' + missingIds.join(', ') + '. Update the MyGeotab Add-In configuration URL to the current Heat Map page, then reload.';
+    var banner = document.createElement('div');
+    banner.className = 'heatmap-unsupported-page';
+    banner.setAttribute('role', 'alert');
+    banner.textContent = message;
+    document.body.insertBefore(banner, document.body.firstChild);
+    return new Error(message);
+  };
   var initializeInterface = function initializeInterface(coords) {
+    var missingIds = requiredElementIds.filter(function (id) {
+      return !document.getElementById(id);
+    });
+    if (missingIds.length) {
+      throw reportUnsupportedPage(missingIds);
+    }
+
     // setup the map
     map = new L.Map('heatmap-map', {
       center: new L.LatLng(coords.latitude, coords.longitude),
@@ -1684,6 +1706,7 @@ geotab.addin.heatmap = function () {
       event.preventDefault();
       window.location.reload();
     });
+    interfaceReady = true;
   };
 
   /**
@@ -1724,6 +1747,9 @@ geotab.addin.heatmap = function () {
     },
     focus: function focus(freshApi, freshState) {
       api = freshApi;
+      if (!interfaceReady) {
+        return;
+      }
       var groupFilter = freshState.getGroupFilter() || [];
       var groupSignature = groupFilter.map(function (group) {
         return group.id || String(group);
@@ -1754,7 +1780,8 @@ geotab.addin.heatmap = function () {
           groups: groupFilter
         }
       }, function (vehicles) {
-        if (!vehicles || vehicles.length < 0) {
+        if (!vehicles || !vehicles.length) {
+          errorHandler('No vehicles are available for the current group filter.');
           return;
         }
         allVehicles = vehicles.sort(sortByName);
@@ -1826,7 +1853,7 @@ geotab.addin.heatmap = function () {
         typeName: 'Rule',
         resultsLimit: 50000
       }, function (rules) {
-        if (!rules || rules.length < 0) {
+        if (!rules || !rules.length) {
           return;
         }
         rules.sort(sortByName);
