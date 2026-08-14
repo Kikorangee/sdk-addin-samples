@@ -944,3 +944,25 @@ details.map-instructions ol {
     display: inline;
     margin: 0;
 }
+
+/* The dropdown panels are light, so they must not inherit the dark chrome's
+   light text colour. */
+#controls .multi-select-toggle,
+#controls .multi-select-panel,
+#controls .multi-select-option,
+#controls .multi-select-actions button,
+#topBar .multi-select-toggle,
+#topBar .multi-select-panel,
+#topBar .multi-select-option {
+    color: #172033;
+}
+
+#controls .multi-select-option {
+    padding-top: 7px;
+    padding-bottom: 7px;
+    font-weight: 500;
+}
+
+#controls .multi-select-empty {
+    color: #4a5b6d;
+}
