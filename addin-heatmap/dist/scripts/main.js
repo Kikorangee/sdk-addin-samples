@@ -210,8 +210,14 @@ geotab.addin.heatmap = function () {
     if (!map || !heatMapLayer) return;
     var exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
     var shouldShow = !exceptionMode || elShowExceptionHeatMap.checked;
-    if (shouldShow && !map.hasLayer(heatMapLayer)) heatMapLayer.addTo(map);
-    if (!shouldShow && map.hasLayer(heatMapLayer)) map.removeLayer(heatMapLayer);
+    // Keep the layer, its canvas, and all loaded points attached to the map.
+    // The exception control changes presentation only, so event data and
+    // detail markers remain available when heat colouring is switched off.
+    if (!map.hasLayer(heatMapLayer)) heatMapLayer.addTo(map);
+    if (heatMapLayer._canvas) {
+      heatMapLayer._canvas.style.visibility = shouldShow ? 'visible' : 'hidden';
+      heatMapLayer._canvas.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+    }
   }
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
