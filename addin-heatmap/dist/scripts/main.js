@@ -9,6 +9,7 @@ geotab.addin.heatmap = function () {
   var heatMapLayer;
   var metricMarkerLayer;
   var metricLegendControl;
+  var vehicleLegendControl;
   var metricMapData = [];
   var metricDetailsVisible = false;
   var heatMapPoints = [];
@@ -262,6 +263,53 @@ geotab.addin.heatmap = function () {
     // Golden-angle spacing guarantees adjacent selected rules use different hues.
     var hue = Math.round(Number(ruleIndex) * 137.508 % 360);
     return 'hsl(' + hue + ', 72%, 42%)';
+  }
+  function colorForVehicleId(vehicleId) {
+    var index = allVehicles.findIndex(function (vehicle) {
+      return vehicle.id === vehicleId;
+    });
+    if (index < 0) index = 0;
+    var hue = Math.round(index * 137.508 % 360);
+    return 'hsl(' + hue + ', 70%, 40%)';
+  }
+  function displayVehicleLegend() {
+    if (vehicleLegendControl) map.removeControl(vehicleLegendControl);
+    var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
+      return { id: option.value, name: option.text, color: colorForVehicleId(option.value) };
+    });
+    if (!selectedVehicles.length) return;
+    vehicleLegendControl = L.control({ position: 'bottomleft' });
+    vehicleLegendControl.onAdd = function () {
+      var element = L.DomUtil.create('div', 'vehicle-legend');
+      element.innerHTML = '<strong>Vehicles</strong>' + selectedVehicles.map(function (vehicle) {
+        return '<label><input type="checkbox" value="' + escapeHtml(vehicle.id) + '" checked><i style="background:' + vehicle.color + '"></i><span>' + escapeHtml(vehicle.name) + '</span></label>';
+      }).join('') + '<small>Untick a vehicle to remove it from these results.</small>';
+      L.DomEvent.disableClickPropagation(element);
+      L.DomEvent.disableScrollPropagation(element);
+      Array.from(element.querySelectorAll('input')).forEach(function (checkbox) {
+        L.DomEvent.on(checkbox, 'change', function () {
+          for (var i = 0; i < elVehicles.options.length; i++) {
+            if (elVehicles.options[i].value === checkbox.value) {
+              elVehicles.options[i].selected = checkbox.checked;
+              break;
+            }
+          }
+          vehicleDropdown.rebuild();
+          if (selectedValues(elVehicles).length) {
+            displayHeatMap();
+          } else {
+            resetHeatMapLayer();
+            displayMetricMarkers([]);
+            displayMetricLegend([]);
+            displayVehicleLegend();
+            errorHandler('Select at least one vehicle to display results.');
+            messageHandler('');
+          }
+        });
+      });
+      return element;
+    };
+    vehicleLegendControl.addTo(map);
   }
   function buildEventMetric(eventInfo, records, roadSpeeds) {
     var logs = validLogRecords(records);
@@ -898,6 +946,7 @@ geotab.addin.heatmap = function () {
       errorHandler('Please select at least one vehicle from the list and try again.');
       return;
     }
+    displayVehicleLegend();
     startTime = new Date();
     if (elExceptionTypes.disabled === true) {
       displayHeatMapForLocationHistory();
@@ -1401,7 +1450,7 @@ geotab.addin.heatmap = function () {
     return { rebuild: rebuild };
   }
 
-  function populateVehicleOptions() {
+  function populateVehicleOptions(selectGroupVehicles) {
     var selectedGroupIds = selectedValues(elVehicleGroups);
     var previouslySelected = selectedValues(elVehicles);
     while (elVehicles.options.length) elVehicles.remove(0);
@@ -1415,7 +1464,7 @@ geotab.addin.heatmap = function () {
       });
     }).forEach(function (vehicle) {
       var option = new Option(vehicle.name, vehicle.id);
-      option.selected = previouslySelected.indexOf(vehicle.id) !== -1;
+      option.selected = (selectedGroupIds.length > 0 && selectGroupVehicles) || previouslySelected.indexOf(vehicle.id) !== -1;
       elVehicles.add(option);
     });
     vehicleDropdown.rebuild();
@@ -1522,7 +1571,9 @@ geotab.addin.heatmap = function () {
       updateMapEventTotal();
     });
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
-    elVehicleGroups.addEventListener('change', populateVehicleOptions);
+    elVehicleGroups.addEventListener('change', function () {
+      populateVehicleOptions(true);
+    });
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();
     });
