@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.23**
+Current version: **1.0.31**
 
 ## Features
 
@@ -12,8 +12,10 @@ Current version: **1.0.23**
 - Quick ranges for today, yesterday, this week, last week, this month, and last month.
 - Event totals showing events currently in view and total records loaded.
 - A clean heat-map-first result with no markers obscuring the heat colouring.
-- A top-right legend showing each selected exception rule, colour, and event count.
-- An optional **Show event details** overlay with colour-coded dots, collision-limited labels, hover text, and clickable event information.
+- A top-right legend showing each selected exception rule and its event count.
+- An optional **Show event details** overlay whose dots, labels, and callout lines use each vehicle's colour from the vehicle legend, with collision-limited labels, hover text, and clickable event information.
+- A top bar holding the date range, quick ranges, and the event totals readout.
+- A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
 - Direct Track branding in the map's top-right corner.
@@ -38,10 +40,10 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.23",
+  "version": "1.0.31",
   "items": [
     {
-      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap_v1_0_23.html",
+      "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",
       "category": "SafetyId",
       "menuName": {
         "en": "Heat Map Analytics"
@@ -52,6 +54,10 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
   "isSigned": false
 }
 ```
+
+## Upgrading
+
+`dist/scripts/main.js` is shared by every `dist/heatmap*.html` page and expects the controls of the current page. After deploying a new page, update the `url` in the MyGeotab Add-In configuration to match, then hard-refresh MyGeotab. An older page left in the configuration loads but cannot bind its controls; it now shows an out-of-date banner naming the missing controls instead of failing silently.
 
 ## Usage
 

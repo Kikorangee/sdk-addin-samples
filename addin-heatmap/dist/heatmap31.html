@@ -27,6 +27,33 @@
       <p></p>
     </div>
 
+    <div id="topBar">
+      <div class="top-bar-dates">
+        <div class="top-bar-field">
+          <label for="from">From:</label>
+          <input id="from" type="datetime-local" class="checkmateFormEditField" />
+        </div>
+        <div class="top-bar-field">
+          <label for="to">To:</label>
+          <input id="to" type="datetime-local" class="checkmateFormEditField" />
+        </div>
+        <fieldset class="date-presets">
+          <legend>Quick time range</legend>
+          <div class="date-preset-grid">
+            <button type="button" class="date-preset" data-range="today">Today</button>
+            <button type="button" class="date-preset" data-range="yesterday">Yesterday</button>
+            <button type="button" class="date-preset" data-range="thisWeek">This week</button>
+            <button type="button" class="date-preset" data-range="lastWeek">Last week</button>
+            <button type="button" class="date-preset" data-range="thisMonth">This month</button>
+            <button type="button" class="date-preset" data-range="lastMonth">Last month</button>
+          </div>
+        </fieldset>
+      </div>
+      <div id="map-event-total" role="status" aria-live="polite">
+        <strong>0</strong><span>events in view</span><small>0 total loaded</small>
+      </div>
+    </div>
+
     <div class="cssGrid sm-part-12">
       <div class="lg-part-2 md-part-3 sm-part-12">
         <div id="controls">
@@ -67,41 +94,26 @@
           <select id="zones" class="checkmateFormEditField multi-select-native" multiple></select>
           <small class="control-help">Leave groups or zones clear to include all available vehicles or locations.</small>
 
-          <label for="from">From:</label>
-          <input id="from" type="datetime-local" class="checkmateFormEditField" />
-
-          <label for="to">To:</label>
-          <input id="to" type="datetime-local" class="checkmateFormEditField" />
-
-          <fieldset class="date-presets">
-            <legend>Quick time range</legend>
-            <div class="date-preset-grid">
-              <button type="button" class="date-preset" data-range="today">Today</button>
-              <button type="button" class="date-preset" data-range="yesterday">Yesterday</button>
-              <button type="button" class="date-preset" data-range="thisWeek">This week</button>
-              <button type="button" class="date-preset" data-range="lastWeek">Last week</button>
-              <button type="button" class="date-preset" data-range="thisMonth">This month</button>
-              <button type="button" class="date-preset" data-range="lastMonth">Last month</button>
-            </div>
-          </fieldset>
-          <div style="margin:1em"></div>
-          <button type="button" id="showHeatMap">Show Results</button>
-          <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
-          <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
-          <div id="error"></div>
-          <div id="message"></div>
         </div>
       </div>
       <div class="lg-part-10 md-part-9 sm-part-12 map-column">
-          <div id="loading" class="loading-progress" role="progressbar" aria-label="Map data progress" aria-busy="false" aria-valuetext="Ready">
-            <div></div>
-          </div>
           <div id="heatmap-map" style="width:100%">
             <div id="map-brand-logo" aria-label="Direct Track">
               <img src="images/direct-track-logo.png" alt="Direct Track">
             </div>
-            <div id="map-event-total" role="status" aria-live="polite">
-              <strong>0</strong><span>events in view</span><small>0 total loaded</small>
+            <div id="loading" class="loading-progress" role="progressbar" aria-label="Map data progress" aria-busy="false" aria-valuetext="Ready">
+              <div></div>
+            </div>
+          </div>
+          <div id="mapActions">
+            <div class="map-action-buttons">
+              <button type="button" id="showHeatMap">Show Results</button>
+              <button type="button" id="refreshAddIn" class="refreshButton">Refresh data</button>
+              <button type="button" class="printPdfButton" onclick="window.print()">Print / Save PDF</button>
+            </div>
+            <div class="map-action-status">
+              <div id="error"></div>
+              <div id="message"></div>
             </div>
           </div>
           <section class="map-instructions" aria-labelledby="instructions-title">
