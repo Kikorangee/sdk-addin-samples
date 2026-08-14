@@ -18,11 +18,13 @@ geotab.addin.heatmap = function () {
   var elGroupTypes;
   var elVehicleGroups;
   var elVehicles;
+  var elZoneTypes;
   var elZones;
   var ruleDropdown;
   var groupTypeDropdown;
   var vehicleGroupDropdown;
   var vehicleDropdown;
+  var zoneTypeDropdown;
   var zoneDropdown;
   var elDateFromInput;
   var elDateToInput;
@@ -39,6 +41,7 @@ geotab.addin.heatmap = function () {
   var availableGroups = [];
   var groupById = {};
   var parentByGroupId = {};
+  var availableZoneTypes = [];
   var availableZones = [];
   var legendVehicleIds = {};
 
@@ -212,6 +215,23 @@ geotab.addin.heatmap = function () {
         return pointInPolygon(point, polygon);
       });
     });
+  }
+  function populateZoneOptions() {
+    var selectedTypeIds = selectedValues(elZoneTypes);
+    var previouslySelected = selectedValues(elZones);
+    while (elZones.options.length) elZones.remove(0);
+    availableZones.filter(function (zone) {
+      if (!selectedTypeIds.length) return true;
+      var zoneTypeIds = (zone.zoneTypes || []).map(function (zoneType) {
+        return zoneType.id || zoneType;
+      });
+      return selectedTypeIds.some(function (id) { return zoneTypeIds.indexOf(id) !== -1; });
+    }).forEach(function (zone) {
+      var option = new Option(zone.name, zone.id);
+      option.selected = previouslySelected.indexOf(zone.id) !== -1;
+      elZones.add(option);
+    });
+    zoneDropdown.rebuild();
   }
   function syncHeatMapVisibility() {
     if (!map || !heatMapLayer) return;
@@ -909,10 +929,14 @@ geotab.addin.heatmap = function () {
   var toggleLoading = function toggleLoading(show) {
     if (show) {
       elShowHeatMap.disabled = true;
-      elLoading.style.display = 'block';
+      elLoading.classList.add('is-loading');
+      elLoading.setAttribute('aria-busy', 'true');
+      elLoading.setAttribute('aria-valuetext', 'Loading map data');
     } else {
       setTimeout(function () {
-        elLoading.style.display = 'none';
+        elLoading.classList.remove('is-loading');
+        elLoading.setAttribute('aria-busy', 'false');
+        elLoading.setAttribute('aria-valuetext', 'Ready');
       }, 600);
       elShowHeatMap.disabled = false;
     }
@@ -1544,11 +1568,13 @@ geotab.addin.heatmap = function () {
     elGroupTypes = document.getElementById('groupTypes');
     elVehicleGroups = document.getElementById('vehicleGroups');
     elVehicles = document.getElementById('vehicles');
+    elZoneTypes = document.getElementById('zoneTypes');
     elZones = document.getElementById('zones');
     ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
     groupTypeDropdown = enhanceMultiSelect(elGroupTypes, 'All group types');
     vehicleGroupDropdown = enhanceMultiSelect(elVehicleGroups, 'All vehicle groups');
     vehicleDropdown = enhanceMultiSelect(elVehicles, 'Select vehicles');
+    zoneTypeDropdown = enhanceMultiSelect(elZoneTypes, 'All zone types');
     zoneDropdown = enhanceMultiSelect(elZones, 'All zones');
     elDateFromInput = document.getElementById('from');
     elDateToInput = document.getElementById('to');
@@ -1635,6 +1661,7 @@ geotab.addin.heatmap = function () {
       loadVehiclesForSelectedGroups();
     });
     elVehicleGroups.addEventListener('change', loadVehiclesForSelectedGroups);
+    elZoneTypes.addEventListener('change', populateZoneOptions);
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();
     });
@@ -1708,12 +1735,14 @@ geotab.addin.heatmap = function () {
       while (elVehicles.options.length) elVehicles.remove(0);
       while (elGroupTypes.options.length) elGroupTypes.remove(0);
       while (elVehicleGroups.options.length) elVehicleGroups.remove(0);
+      while (elZoneTypes.options.length) elZoneTypes.remove(0);
       while (elZones.options.length) elZones.remove(0);
       while (elExceptionTypes.options.length > 1) elExceptionTypes.remove(1);
       allVehicles = [];
       availableGroups = [];
       groupById = {};
       parentByGroupId = {};
+      availableZoneTypes = [];
       availableZones = [];
 
       // Populate vehicles list.
@@ -1765,6 +1794,20 @@ geotab.addin.heatmap = function () {
         populateVehicleGroupOptions();
       }, errorHandler);
 
+      // Populate Geotab zone types used to narrow the zone selector.
+      api.call('Get', {
+        typeName: 'ZoneType',
+        resultsLimit: 50000
+      }, function (zoneTypes) {
+        availableZoneTypes = (zoneTypes || []).filter(function (zoneType) {
+          return zoneType && zoneType.id && zoneType.name;
+        }).sort(sortByName);
+        availableZoneTypes.forEach(function (zoneType) {
+          elZoneTypes.add(new Option(zoneType.name, zoneType.id));
+        });
+        zoneTypeDropdown.rebuild();
+      }, errorHandler);
+
       // Populate zones. Selected zones are applied client-side to both GPS heat
       // points and exception metrics, leaving the fetched exception data intact.
       api.call('Get', {
@@ -1775,10 +1818,7 @@ geotab.addin.heatmap = function () {
         availableZones = (zones || []).filter(function (zone) {
           return zone && zone.id && zone.name && zoneCoordinates(zone).length >= 3;
         }).sort(sortByName);
-        availableZones.forEach(function (zone) {
-          elZones.add(new Option(zone.name, zone.id));
-        });
-        zoneDropdown.rebuild();
+        populateZoneOptions();
       }, errorHandler);
 
       // Populate exceptions list.
