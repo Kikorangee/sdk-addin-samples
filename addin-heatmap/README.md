@@ -56,6 +56,18 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 }
 ```
 
+### Hosting the files inside MyGeotab
+
+To avoid depending on GitHub Pages, MyGeotab can host the files in the database itself. Build the flattened bundle:
+
+```bash
+./tools/build-hosted-zip.sh
+```
+
+This writes `build/heatmap-addin-<version>-mygeotab-hosted.zip`, which contains every asset in one flat folder (MyGeotab keeps uploaded files in a single namespace, so the HTML references bare file names) plus a `config.json` whose `url` and `icon` are relative.
+
+In MyGeotab: **System Settings → Add-Ins → + Add-In**, paste the bundled `config.json` into the *Configuration* tab, then upload the remaining files on the *Files* tab, click **Done**, and **Save**. Re-upload the files after every change, since the database keeps its own copy.
+
 ## Upgrading
 
 `dist/scripts/main.js` is shared by every `dist/heatmap*.html` page and expects the controls of the current page. After deploying a new page, update the `url` in the MyGeotab Add-In configuration to match, then hard-refresh MyGeotab. An older page left in the configuration loads but cannot bind its controls; it now shows an out-of-date banner naming the missing controls instead of failing silently.
