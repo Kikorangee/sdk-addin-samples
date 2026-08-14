@@ -1,15 +1,69 @@
 #heatmap-map {
-    height: calc(100vh - 70px);
-    min-height: 520px;
+    position: relative;
+    height: calc(100vh - 210px);
+    min-height: 460px;
+}
+
+#topBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 18px;
+    padding: 8px 14px;
+    background: #e5f2fa;
+    border-bottom: 1px solid #cbd8e2;
+    font-size: 12px;
+}
+
+.top-bar-dates {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+}
+
+.top-bar-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.top-bar-field label {
+    padding: 0;
+    font-size: 12px;
+}
+
+.top-bar-field input {
+    width: auto;
+    padding: 2px 4px;
+    font-size: 12px;
+}
+
+#topBar .date-presets {
+    margin: 0;
+}
+
+#topBar .date-presets legend {
+    padding: 0 0 2px;
+    font-size: 11px;
+}
+
+/* Two rows of three keeps the quick ranges compact beside the date fields. */
+#topBar .date-preset-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+}
+
+#topBar .date-preset {
+    min-height: 24px;
+    padding: 3px 8px;
+    font-size: 11px;
 }
 
 #map-event-total {
-    position: absolute;
-    top: 70px;
-    right: 12px;
-    z-index: 1000;
-    min-width: 142px;
-    padding: 10px 14px;
+    min-width: 118px;
+    padding: 5px 10px;
     border: 1px solid rgba(15, 23, 42, 0.15);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.94);
@@ -27,7 +81,7 @@
 
 #map-event-total strong {
     color: #087ca7;
-    font-size: 24px;
+    font-size: 17px;
     line-height: 1;
 }
 
@@ -116,7 +170,7 @@ select.checkmateFormEditField {
 .metric-legend {
     min-width: 180px;
     max-width: 280px;
-    margin-top: 160px !important;
+    margin-top: 92px !important;
     padding: 10px 12px;
     border: 1px solid rgba(15, 23, 42, 0.18);
     border-radius: 8px;
@@ -291,6 +345,7 @@ select.checkmateFormEditField {
   }
 
   #disclaimer,
+  #topBar,
   .cssGrid > div:first-child,
   .leaflet-control-zoom {
     display: none !important;
@@ -426,11 +481,23 @@ label {
 }
 
 .loading-progress {
-    position: relative;
-    width: 100%;
-    height: 7px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1200;
+    width: 320px;
+    max-width: 70%;
+    height: 10px;
     overflow: hidden;
+    border-radius: 6px;
     background: #d8e4ec;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.28);
+    visibility: hidden;
+}
+
+.loading-progress.is-loading {
+    visibility: visible;
 }
 
 .loading-progress > div {
@@ -586,4 +653,146 @@ ol {
     background: #087ca7;
     color: #fff;
     font-weight: 600;
+}
+
+.heatmap-unsupported-page {
+    margin: 8px;
+    padding: 10px 12px;
+    border: 1px solid #d0021b;
+    border-radius: 5px;
+    background: #fdecee;
+    color: #8a0011;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Dark blue theme for the Add-In chrome. The map, form controls, and map
+   overlays stay light so Leaflet tiles and legends remain readable. */
+html,
+body,
+#heatmap {
+    background: #0d2544;
+    color: #e6eef9;
+}
+
+#controls {
+    background-color: #123058;
+    border-right: 1px solid #1d4a80;
+    color: #e6eef9;
+}
+
+#topBar {
+    background: #123058;
+    border-bottom: 1px solid #1d4a80;
+    color: #e6eef9;
+}
+
+#topBar .date-presets legend,
+#controls label,
+#topBar label {
+    color: #e6eef9;
+}
+
+#controls .control-help,
+#controls small {
+    color: #a9c2de;
+}
+
+.map-instructions {
+    background: #0d2544;
+    border-top: 1px solid #1d4a80;
+    color: #dbe6f4;
+}
+
+#message {
+    color: #8ec7ff;
+}
+
+#error {
+    color: #ff9d9d;
+}
+
+#disclaimer {
+    background-color: #17395f;
+    border-color: #1d4a80;
+    color: #dbe6f4;
+    fill: #dbe6f4;
+}
+
+#disclaimerLabel {
+    color: #dbe6f4;
+    fill: #dbe6f4;
+}
+
+.date-preset {
+    border-color: #2b5c96;
+    background: #1b4272;
+    color: #e6eef9;
+}
+
+.date-preset:hover,
+.date-preset:focus-visible {
+    border-color: #4d94d8;
+    background: #235690;
+}
+
+.date-preset.is-active {
+    border-color: #23a7d8;
+    background: #087ca7;
+    color: #fff;
+}
+
+.printPdfButton {
+    background: #1b4272;
+    color: #e6eef9;
+}
+
+.printPdfButton:hover,
+.printPdfButton:focus-visible {
+    background: #235690;
+}
+
+/* Action bar in the space under the map. */
+#mapActions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 20px;
+    padding: 10px 20px;
+    background: #123058;
+    border-top: 1px solid #1d4a80;
+}
+
+.map-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+#mapActions #showHeatMap,
+#mapActions .refreshButton,
+#mapActions .printPdfButton {
+    width: auto;
+    min-height: 38px;
+    margin: 0;
+    padding: 8px 20px;
+    font-size: 14px;
+}
+
+.map-action-status {
+    flex: 1 1 220px;
+    min-width: 0;
+    text-align: right;
+}
+
+.map-action-status #error:empty,
+.map-action-status #message:empty {
+    display: none;
+}
+
+.map-action-status #error,
+.map-action-status #message {
+    margin: 0;
 }
