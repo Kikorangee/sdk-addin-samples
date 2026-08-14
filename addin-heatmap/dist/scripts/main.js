@@ -56,6 +56,10 @@ geotab.addin.heatmap = function () {
   var CACHE_TODAY_TTL_MS = 5 * 60 * 1000;
   var CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   var API_BATCH_SIZE = 25;
+  // Selector data only needs enough rows to fill the dropdowns. Asking for
+  // 50,000 zones or rules is slow enough on large databases that MyGeotab
+  // reports a connection failure instead of a result.
+  var SELECTOR_RESULTS_LIMIT = 5000;
   var GRID_MULTIPLIER = 2000; // 0.0005 degrees, roughly 50 m latitude
   var cacheSessionNamespace = 'unknown-database|unknown-user';
   var cacheNamespace = 'unknown-database|unknown-user';
@@ -66,6 +70,11 @@ geotab.addin.heatmap = function () {
    * @param {string} message - The error message.
    */
   var errorHandler = function errorHandler(message) {
+    // MyGeotab passes an error object to api.call error callbacks; rendering it
+    // directly would print "[object Object]" instead of the reason.
+    if (message && typeof message === 'object') {
+      message = message.message || message.name || 'Unknown MyGeotab error';
+    }
     elError.innerHTML = message;
   };
 
@@ -1567,10 +1576,23 @@ geotab.addin.heatmap = function () {
     if (!root) {
       return;
     }
-    var available = Math.max(window.innerHeight - root.getBoundingClientRect().top, 420);
+    // MyGeotab renders the Add-In in a frame that can be taller than the space
+    // left below its own header, so prefer the height actually visible there.
+    var viewport = window.innerHeight;
+    try {
+      if (window.frameElement && window.parent && window.parent !== window) {
+        var visible = window.parent.innerHeight - window.frameElement.getBoundingClientRect().top;
+        if (visible > 0) {
+          viewport = Math.min(viewport, visible);
+        }
+      }
+    } catch (crossOrigin) {
+      // A cross-origin parent leaves the frame's own height as the best guess.
+    }
+    var available = Math.max(viewport - root.getBoundingClientRect().top, 420);
     root.style.height = Math.round(available) + 'px';
     // Trim whatever still overflows (page margins, siblings) so nothing scrolls.
-    var overflow = document.documentElement.scrollHeight - window.innerHeight;
+    var overflow = document.documentElement.scrollHeight - viewport;
     if (overflow > 0) {
       root.style.height = Math.round(Math.max(available - overflow, 420)) + 'px';
     }
@@ -1788,29 +1810,43 @@ geotab.addin.heatmap = function () {
       availableZoneTypes = [];
       availableZones = [];
 
-      // Populate vehicles list.
-      api.call('Get', {
+      // One multiCall instead of five parallel requests: MyGeotab reports
+      // "unable to connect to your database" when a burst of large Get calls
+      // times out, and the selector data is only useful once it has all arrived.
+      api.multiCall([['Get', {
         typeName: 'Device',
-        resultsLimit: 50000,
+        resultsLimit: SELECTOR_RESULTS_LIMIT,
         search: {
           fromDate: new Date().toISOString(),
           groups: groupFilter
         }
-      }, function (vehicles) {
+      }], ['Get', {
+        typeName: 'Group',
+        resultsLimit: SELECTOR_RESULTS_LIMIT
+      }], ['Get', {
+        typeName: 'ZoneType',
+        resultsLimit: SELECTOR_RESULTS_LIMIT
+      }], ['Get', {
+        typeName: 'Zone',
+        resultsLimit: SELECTOR_RESULTS_LIMIT,
+        search: {
+          groups: groupFilter
+        }
+      }], ['Get', {
+        typeName: 'Rule',
+        resultsLimit: SELECTOR_RESULTS_LIMIT
+      }]], function (results) {
+        var vehicles = results[0];
+        var groups = results[1];
+        var zoneTypes = results[2];
+        var zones = results[3];
+        var rules = results[4];
         if (!vehicles || !vehicles.length) {
           errorHandler('No vehicles are available for the current group filter.');
-          return;
+        } else {
+          allVehicles = vehicles.sort(sortByName);
+          populateVehicleOptions(allVehicles, false);
         }
-        allVehicles = vehicles.sort(sortByName);
-        populateVehicleOptions(allVehicles, false);
-      }, errorHandler);
-
-      // Reconstruct Geotab's group hierarchy from each Group.children list.
-      // Parents of "... PREFIX" groups are exposed as selectable group types.
-      api.call('Get', {
-        typeName: 'Group',
-        resultsLimit: 50000
-      }, function (groups) {
         availableGroups = (groups || []).filter(function (group) {
           return group && group.id && group.name;
         });
@@ -1836,13 +1872,8 @@ geotab.addin.heatmap = function () {
         });
         groupTypeDropdown.rebuild();
         populateVehicleGroupOptions();
-      }, errorHandler);
 
-      // Populate Geotab zone types used to narrow the zone selector.
-      api.call('Get', {
-        typeName: 'ZoneType',
-        resultsLimit: 50000
-      }, function (zoneTypes) {
+        // Zone types narrow the zone selector.
         availableZoneTypes = (zoneTypes || []).filter(function (zoneType) {
           return zoneType && zoneType.id && zoneType.name;
         }).sort(sortByName);
@@ -1850,36 +1881,23 @@ geotab.addin.heatmap = function () {
           elZoneTypes.add(new Option(zoneType.name, zoneType.id));
         });
         zoneTypeDropdown.rebuild();
-      }, errorHandler);
 
-      // Populate zones. Selected zones are applied client-side to both GPS heat
-      // points and exception metrics, leaving the fetched exception data intact.
-      api.call('Get', {
-        typeName: 'Zone',
-        resultsLimit: 50000,
-        search: { groups: groupFilter }
-      }, function (zones) {
+        // Selected zones are applied client-side to both GPS heat points and
+        // exception metrics, leaving the fetched exception data intact.
         availableZones = (zones || []).filter(function (zone) {
           return zone && zone.id && zone.name && zoneCoordinates(zone).length >= 3;
         }).sort(sortByName);
         populateZoneOptions();
-      }, errorHandler);
-
-      // Populate exceptions list.
-      api.call('Get', {
-        typeName: 'Rule',
-        resultsLimit: 50000
-      }, function (rules) {
-        if (!rules || !rules.length) {
-          return;
+        if (rules && rules.length) {
+          rules.sort(sortByName);
+          rules.forEach(function (rule) {
+            var option = new Option();
+            option.text = rule.name;
+            option.value = rule.id;
+            elExceptionTypes.add(option);
+          });
+          ruleDropdown.rebuild();
         }
-        rules.sort(sortByName);
-        rules.forEach(function (rule) {
-          var option = new Option();
-          option.text = rule.name;
-          option.value = rule.id;
-          elExceptionTypes.add(option);
-        });
       }, errorHandler);
       setTimeout(function () {
         fitToViewport();
