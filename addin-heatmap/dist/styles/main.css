@@ -876,6 +876,27 @@ details.map-instructions ol {
     font-weight: 600;
 }
 
+/* In the top bar the quick ranges sit on one line, all buttons the same width. */
+#topBar .date-presets {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#topBar .date-presets-label {
+    padding: 0;
+    white-space: nowrap;
+}
+
 #topBar .date-preset-grid {
-    grid-template-columns: repeat(3, minmax(74px, 1fr));
+    grid-template-columns: repeat(6, 88px);
+    gap: 4px;
+}
+
+#topBar .date-preset {
+    width: 100%;
+    min-height: 26px;
+    padding: 3px 4px;
+    text-align: center;
+    white-space: nowrap;
 }
