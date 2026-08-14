@@ -437,8 +437,15 @@ label {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 35%;
+    left: 0;
+    width: 100%;
     background: #087ca7;
+    opacity: 0.28;
+}
+
+.loading-progress.is-loading > div {
+    width: 35%;
+    opacity: 1;
     animation: heatmap-progress 1.1s ease-in-out infinite;
 }
 
