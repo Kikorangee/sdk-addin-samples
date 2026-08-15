@@ -161,6 +161,40 @@ select.checkmateFormEditField {
     letter-spacing: -0.3px;
 }
 
+/* A school-zone limit takes the yellow school-zone surround so it reads apart
+   from the permanent posted limit. */
+.speed-limit-sign.is-school-zone span {
+    border-color: #e30613;
+    background: #f2a900;
+    box-shadow: 0 0 0 3px #f2a900, 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.school-zone-flag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #fdf1d2;
+    color: #6a4a00;
+    font-weight: 700;
+}
+
+.school-zone-legend {
+    max-width: 250px;
+    padding: 9px 11px;
+    border: 1px solid rgba(49, 75, 96, 0.24);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 2px 8px rgba(31, 53, 70, 0.18);
+    color: #263746;
+    font-size: 11px;
+}
+
+.school-zone-legend > strong { display: flex; align-items: center; gap: 6px; }
+.school-zone-legend > strong i { width: 12px; height: 12px; flex: 0 0 auto; border: 1px solid #f2a900; background: rgba(242, 169, 0, 0.35); }
+.school-zone-legend span { display: block; margin-top: 4px; }
+.school-zone-legend small { display: block; margin-top: 5px; color: #617083; font-size: 10px; line-height: 1.3; }
+
 .event-metric-marker span {
     position: relative;
     display: block;

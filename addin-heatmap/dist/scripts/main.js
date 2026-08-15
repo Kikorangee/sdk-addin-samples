@@ -46,6 +46,24 @@ geotab.addin.heatmap = function () {
   var availableZones = [];
   var legendVehicleIds = {};
 
+  // School speed zones come from the NZTA National Speed Limit Register
+  // (SpeedLimitZoneFull view), filtered to the zones that exist because of a
+  // school. Only the zones intersecting the current map view are requested so a
+  // pan never pulls all ~6,800 national zones at once.
+  var SCHOOL_ZONE_SERVICE_URL = 'https://services.arcgis.com/CXBb7LAjgIIdcsPt/arcgis/rest/services/SpeedLimitZoneFull__View/FeatureServer/0/query';
+  var SCHOOL_ZONE_WHERE = "speedLimitZoneReasonName='The presence of a school'";
+  var SCHOOL_ZONE_MIN_ZOOM = 11;
+  var SCHOOL_ZONE_PAGE_SIZE = 2000;
+  var SCHOOL_ZONE_MAX_CACHED = 6000;
+  var elShowSchoolZones;
+  var elSchoolZoneStatus;
+  var schoolZoneLayer;
+  var schoolZoneLegendControl;
+  var schoolZones = [];
+  var schoolZoneById = {};
+  var schoolZoneRequestId = 0;
+  var schoolZoneReloadTimer = null;
+
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
   // five minutes. Points are aggregated into ~50 m / one-minute cells.
@@ -359,6 +377,7 @@ geotab.addin.heatmap = function () {
     var event = eventInfo.event;
     var durationMs = Math.max(0, new Date(event.activeTo || event.activeFrom) - new Date(event.activeFrom));
     var chosen = logs[Math.floor(logs.length / 2)];
+    var peakSpeed = null;
     var label = formatDuration(durationMs);
     var detail = 'Duration: ' + label;
     var kind = 'duration';
@@ -381,6 +400,7 @@ geotab.addin.heatmap = function () {
           chosen = log;
         }
       });
+      if (Number.isFinite(maxSpeed)) peakSpeed = Math.round(maxSpeed);
       if (bestLimit != null && bestExcess > -Infinity) {
         speedLimit = Math.round(bestLimit);
         label = (bestExcess >= 0 ? '+' : '') + Math.round(bestExcess) + ' km/h';
@@ -430,10 +450,258 @@ geotab.addin.heatmap = function () {
       label: label,
       kind: kind,
       speedLimit: speedLimit,
+      vehicleSpeed: Number.isFinite(Number(chosen.speed)) ? Math.round(Number(chosen.speed)) : peakSpeed,
       ruleName: name,
       color: eventInfo.color,
       popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) + '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) + '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
     };
+  }
+  function schoolZoneRings(geometry) {
+    if (!geometry) return [];
+    if (geometry.type === 'Polygon') return [geometry.coordinates];
+    if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+    return [];
+  }
+
+  /**
+   * Converts an NZTA speed limit zone feature into the compact shape the
+   * overlay and the point-in-zone test need, including a bounding box so most
+   * zones can be rejected without walking their rings.
+   * @param {object} feature - A GeoJSON feature from the speed limit register.
+   */
+  function normalizeSchoolZone(feature) {
+    var rings = schoolZoneRings(feature && feature.geometry);
+    if (!rings.length) return null;
+    var properties = feature.properties || {};
+    var minLat = Infinity;
+    var maxLat = -Infinity;
+    var minLon = Infinity;
+    var maxLon = -Infinity;
+    rings.forEach(function (polygon) {
+      (polygon[0] || []).forEach(function (position) {
+        var lon = Number(position[0]);
+        var lat = Number(position[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+      });
+    });
+    if (!Number.isFinite(minLat) || !Number.isFinite(minLon)) return null;
+    var numeric = function numeric(value) {
+      var parsed = Number(String(value == null ? '' : value).replace(/[^0-9.]/g, ''));
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+    return {
+      id: String(properties.OBJECTID != null ? properties.OBJECTID : properties.GlobalID || Math.random()),
+      name: properties.speedLimitZoneName || properties.rcaZoneReferenceName || 'School speed zone',
+      category: properties.speedCategoryName || '',
+      limit: numeric(properties.speedLimitZoneValue),
+      minLimit: numeric(properties.speedLimitZoneMinValue),
+      maxLimit: numeric(properties.speedLimitZoneMaxValue),
+      period: properties.speedLimitZoneVarPrdDesc || '',
+      rings: rings,
+      bbox: [minLat, minLon, maxLat, maxLon],
+      feature: {
+        type: 'Feature',
+        geometry: feature.geometry,
+        properties: properties
+      }
+    };
+  }
+
+  /**
+   * The limit a school zone enforces while it is active. Variable zones publish
+   * the school-hours limit as their minimum value (for example 40 km/h inside a
+   * 50 km/h street), so that is the limit school-zone speeding is measured
+   * against.
+   * @param {object} zone - A normalized school zone.
+   */
+  function schoolZoneLimit(zone) {
+    if (!zone) return null;
+    if (zone.minLimit != null) return zone.minLimit;
+    return zone.limit;
+  }
+  function pointInRing(lat, lon, ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var lonI = Number(ring[i][0]);
+      var latI = Number(ring[i][1]);
+      var lonJ = Number(ring[j][0]);
+      var latJ = Number(ring[j][1]);
+      if (latI > lat !== latJ > lat && lon < (lonJ - lonI) * (lat - latI) / (latJ - latI) + lonI) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+  function pointInSchoolZone(lat, lon, zone) {
+    if (lat < zone.bbox[0] || lat > zone.bbox[2] || lon < zone.bbox[1] || lon > zone.bbox[3]) return false;
+    return zone.rings.some(function (polygon) {
+      if (!polygon.length || !pointInRing(lat, lon, polygon[0])) return false;
+      for (var hole = 1; hole < polygon.length; hole++) {
+        if (pointInRing(lat, lon, polygon[hole])) return false;
+      }
+      return true;
+    });
+  }
+  function schoolZoneAt(lat, lon) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    for (var i = 0; i < schoolZones.length; i++) {
+      if (pointInSchoolZone(lat, lon, schoolZones[i])) return schoolZones[i];
+    }
+    return null;
+  }
+  function describeSchoolZone(zone) {
+    var limit = schoolZoneLimit(zone);
+    var parts = [zone.name];
+    if (limit != null) parts.push(limit + ' km/h school zone');
+    if (zone.category) parts.push(zone.category.toLowerCase() + ' limit');
+    if (zone.period) parts.push(zone.period);
+    return parts.join(' \u2022 ');
+  }
+
+  /**
+   * Tags every mapped event with the school zone it falls inside, so the sign,
+   * callout and popup can report the school-zone limit instead of only the
+   * posted road limit.
+   */
+  function annotateMetricsWithSchoolZones() {
+    metricMapData.forEach(function (metric) {
+      var zone = schoolZones.length ? schoolZoneAt(metric.lat, metric.lon) : null;
+      metric.schoolZone = zone;
+      var limit = schoolZoneLimit(zone);
+      metric.schoolZoneLimit = limit;
+      // Only speeding events carry a meaningful peak speed, so other rule
+      // types are reported as inside the zone without being called speeding.
+      metric.schoolZoneSpeeding = !!(zone && limit != null && metric.kind === 'speed' && Number.isFinite(metric.vehicleSpeed) && metric.vehicleSpeed > limit);
+    });
+  }
+  function schoolZoneSpeedingCount() {
+    return metricMapData.filter(function (metric) {
+      return metric.schoolZoneSpeeding;
+    }).length;
+  }
+  function setSchoolZoneStatus(text) {
+    if (elSchoolZoneStatus) elSchoolZoneStatus.textContent = text || '';
+  }
+  function renderSchoolZoneLayer() {
+    if (schoolZoneLayer) {
+      map.removeLayer(schoolZoneLayer);
+      schoolZoneLayer = null;
+    }
+    if (!elShowSchoolZones || !elShowSchoolZones.checked || !schoolZones.length) return;
+    schoolZoneLayer = L.geoJSON(schoolZones.map(function (zone) {
+      return zone.feature;
+    }), {
+      pane: 'overlayPane',
+      style: function style() {
+        return {
+          color: '#f2a900',
+          weight: 2,
+          opacity: 0.9,
+          fillColor: '#f2a900',
+          fillOpacity: 0.18
+        };
+      },
+      onEachFeature: function onEachFeature(feature, layer) {
+        var zone = schoolZoneById[String(feature.properties.OBJECTID)];
+        if (!zone) return;
+        layer.bindTooltip(escapeHtml(describeSchoolZone(zone)), {
+          sticky: true
+        });
+        layer.bindPopup('<strong>' + escapeHtml(zone.name) + '</strong><br>' + escapeHtml((schoolZoneLimit(zone) != null ? schoolZoneLimit(zone) + ' km/h' : 'Limit unavailable') + (zone.category ? ' (' + zone.category + ')' : '')) + (zone.period ? '<br>' + escapeHtml(zone.period) : '') + '<br><small>NZTA National Speed Limit Register</small>');
+      }
+    }).addTo(map);
+    if (schoolZoneLayer.bringToBack) schoolZoneLayer.bringToBack();
+  }
+  function displaySchoolZoneLegend() {
+    if (schoolZoneLegendControl) {
+      map.removeControl(schoolZoneLegendControl);
+      schoolZoneLegendControl = null;
+    }
+    if (!elShowSchoolZones || !elShowSchoolZones.checked) return;
+    var speedingCount = schoolZoneSpeedingCount();
+    schoolZoneLegendControl = L.control({
+      position: 'bottomright'
+    });
+    schoolZoneLegendControl.onAdd = function () {
+      var element = L.DomUtil.create('div', 'school-zone-legend');
+      element.innerHTML = '<strong><i></i>School speed zones</strong>' + '<span>' + formatNumber(schoolZones.length) + ' zones loaded for this view</span>' + '<span><b>' + formatNumber(speedingCount) + '</b> mapped events over the school-zone limit</span>' + '<small>Zones and limits from the NZTA National Speed Limit Register. Variable zones only apply during the posted school periods, so check the zone tooltip before acting on an event.</small>';
+      L.DomEvent.disableClickPropagation(element);
+      return element;
+    };
+    schoolZoneLegendControl.addTo(map);
+  }
+
+  /**
+   * Loads the school zones intersecting the current map view from the NZTA
+   * feature service, keeping zones already fetched for neighbouring views.
+   */
+  function loadSchoolZonesForView() {
+    if (!map || !elShowSchoolZones || !elShowSchoolZones.checked) return Promise.resolve();
+    if (map.getZoom() < SCHOOL_ZONE_MIN_ZOOM) {
+      setSchoolZoneStatus('Zoom in to load school zones.');
+      return Promise.resolve();
+    }
+    var bounds = map.getBounds();
+    var requestId = ++schoolZoneRequestId;
+    setSchoolZoneStatus('Loading school zones\u2026');
+    var parameters = ['where=' + encodeURIComponent(SCHOOL_ZONE_WHERE), 'geometry=' + encodeURIComponent([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')), 'geometryType=esriGeometryEnvelope', 'spatialRel=esriSpatialRelIntersects', 'inSR=4326', 'outSR=4326', 'outFields=' + encodeURIComponent('OBJECTID,speedLimitZoneName,rcaZoneReferenceName,speedCategoryName,speedLimitZoneValue,speedLimitZoneMinValue,speedLimitZoneMaxValue,speedLimitZoneVarPrdDesc'), 'resultRecordCount=' + SCHOOL_ZONE_PAGE_SIZE, 'returnGeometry=true', 'f=geojson'].join('&');
+    return fetch(SCHOOL_ZONE_SERVICE_URL + '?' + parameters, {
+      credentials: 'omit'
+    }).then(function (response) {
+      if (!response.ok) throw new Error('NZTA speed limit service returned ' + response.status);
+      return response.json();
+    }).then(function (collection) {
+      if (requestId !== schoolZoneRequestId) return;
+      var added = 0;
+      (collection.features || []).forEach(function (feature) {
+        var zone = normalizeSchoolZone(feature);
+        if (!zone || schoolZoneById[zone.id]) return;
+        schoolZoneById[zone.id] = zone;
+        schoolZones.push(zone);
+        added++;
+      });
+      if (schoolZones.length > SCHOOL_ZONE_MAX_CACHED) {
+        schoolZones.splice(0, schoolZones.length - SCHOOL_ZONE_MAX_CACHED).forEach(function (zone) {
+          delete schoolZoneById[zone.id];
+        });
+      }
+      annotateMetricsWithSchoolZones();
+      renderSchoolZoneLayer();
+      displaySchoolZoneLegend();
+      renderMetricMarkers();
+      var speedingCount = schoolZoneSpeedingCount();
+      setSchoolZoneStatus(formatNumber(schoolZones.length) + ' school zones loaded' + (added ? '' : ' (no new zones in this view)') + '; ' + formatNumber(speedingCount) + ' mapped events over the school-zone limit.');
+    })['catch'](function (error) {
+      if (requestId !== schoolZoneRequestId) return;
+      setSchoolZoneStatus('School zones unavailable: ' + (error && error.message ? error.message : 'request failed') + '.');
+    });
+  }
+  function scheduleSchoolZoneReload() {
+    if (!elShowSchoolZones || !elShowSchoolZones.checked) return;
+    if (schoolZoneReloadTimer) clearTimeout(schoolZoneReloadTimer);
+    schoolZoneReloadTimer = setTimeout(function () {
+      schoolZoneReloadTimer = null;
+      loadSchoolZonesForView();
+    }, 400);
+  }
+  function syncSchoolZoneVisibility() {
+    if (!elShowSchoolZones) return;
+    if (!elShowSchoolZones.checked) {
+      schoolZoneRequestId++;
+      setSchoolZoneStatus('');
+      renderSchoolZoneLayer();
+      displaySchoolZoneLegend();
+      annotateMetricsWithSchoolZones();
+      renderMetricMarkers();
+      return;
+    }
+    renderSchoolZoneLayer();
+    displaySchoolZoneLegend();
+    loadSchoolZonesForView();
   }
   function displayMetricLegend(metrics) {
     if (metricLegendControl) map.removeControl(metricLegendControl);
@@ -473,24 +741,29 @@ geotab.addin.heatmap = function () {
   // cluster on the same stretch of road, so a sign is skipped when an identical
   // limit is already drawn within 46px of it.
   function addSpeedLimitSign(metric, acceptedSignPoints) {
-    if (metric.speedLimit == null) return;
+    // Inside a school zone the school limit is the one that matters, so it wins
+    // over the posted road limit on the sign.
+    var limit = metric.schoolZoneLimit != null ? metric.schoolZoneLimit : metric.speedLimit;
+    if (limit == null) return;
+    var inSchoolZone = metric.schoolZoneLimit != null;
     var point = map.latLngToContainerPoint([metric.lat, metric.lon]);
     var duplicate = acceptedSignPoints.some(function (other) {
-      return other.limit === metric.speedLimit && Math.abs(other.x - point.x) < 46 && Math.abs(other.y - point.y) < 46;
+      return other.limit === limit && other.school === inSchoolZone && Math.abs(other.x - point.x) < 46 && Math.abs(other.y - point.y) < 46;
     });
     if (duplicate) return;
-    acceptedSignPoints.push({ x: point.x, y: point.y, limit: metric.speedLimit });
+    acceptedSignPoints.push({ x: point.x, y: point.y, limit: limit, school: inSchoolZone });
     var sign = L.marker([metric.lat, metric.lon], {
       icon: L.divIcon({
-        className: 'speed-limit-sign',
-        html: '<span>' + escapeHtml(String(metric.speedLimit)) + '</span>',
+        className: 'speed-limit-sign' + (inSchoolZone ? ' is-school-zone' : ''),
+        html: '<span>' + escapeHtml(String(limit)) + '</span>',
         iconSize: [34, 34],
         iconAnchor: [17, 40]
       }),
       interactive: true,
       zIndexOffset: -100
     });
-    sign.bindTooltip('Posted speed limit: ' + metric.speedLimit + ' km/h', {
+    var tooltip = inSchoolZone ? 'School zone limit: ' + limit + ' km/h \u2014 ' + describeSchoolZone(metric.schoolZone) + (metric.speedLimit != null ? ' (posted road limit ' + metric.speedLimit + ' km/h)' : '') : 'Posted speed limit: ' + limit + ' km/h';
+    sign.bindTooltip(escapeHtml(tooltip), {
       direction: 'top',
       offset: [0, -6]
     });
@@ -506,7 +779,8 @@ geotab.addin.heatmap = function () {
     metricMapData.forEach(function (metric) {
       if (!map.getBounds().contains(new L.LatLng(metric.lat, metric.lon))) return;
       addSpeedLimitSign(metric, acceptedSignPoints);
-      var calloutText = metric.ruleName + " \u2192 " + metric.label;
+      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (school zone)' : '');
+      var popupHtml = metric.popup + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the school-zone limit' : 'Inside a school zone') + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
       var dot = L.circleMarker([metric.lat, metric.lon], {
         radius: 4,
         color: '#ffffff',
@@ -518,7 +792,7 @@ geotab.addin.heatmap = function () {
         direction: 'top',
         offset: [0, -5]
       });
-      dot.bindPopup(metric.popup);
+      dot.bindPopup(popupHtml);
       dot.addTo(metricMarkerLayer);
       var point = map.latLngToContainerPoint([metric.lat, metric.lon]);
       var labelPoint = point;
@@ -546,7 +820,7 @@ geotab.addin.heatmap = function () {
       var marker = L.marker(labelLatLng, {
         icon: L.divIcon({
           className: 'event-metric-marker event-metric-' + metric.kind,
-          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + '</span>',
+          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + '</span>',
           iconSize: [70, 30],
           iconAnchor: [8, 15]
         })
@@ -555,14 +829,16 @@ geotab.addin.heatmap = function () {
         direction: 'top',
         offset: [0, -6]
       });
-      marker.bindPopup(metric.popup);
+      marker.bindPopup(popupHtml);
       marker.addTo(metricMarkerLayer);
     });
   }
   function displayMetricMarkers(metrics) {
     metricMapData = metrics || [];
     metricDetailsVisible = false;
+    annotateMetricsWithSchoolZones();
     displayMetricLegend(metrics);
+    displaySchoolZoneLegend();
     renderMetricMarkers();
     updateMapEventTotal();
   }
@@ -1591,7 +1867,7 @@ geotab.addin.heatmap = function () {
   // System Settings configuration, so an outdated page can be served alongside
   // the current script. Reporting the missing ids makes that visible instead of
   // leaving a loaded but inert Add-In.
-  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'showExceptionHeatMap', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
+  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'showExceptionHeatMap', 'showSchoolZones', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
   var reportUnsupportedPage = function reportUnsupportedPage(missingIds) {
     var message = 'This Heat Map page is out of date and is missing: ' + missingIds.join(', ') + '. Update the MyGeotab Add-In configuration URL to the current Heat Map page, then reload.';
     var banner = document.createElement('div');
@@ -1656,6 +1932,8 @@ geotab.addin.heatmap = function () {
     // find reused elements
     elExceptionTypes = document.getElementById('exceptionTypes');
     elShowExceptionHeatMap = document.getElementById('showExceptionHeatMap');
+    elShowSchoolZones = document.getElementById('showSchoolZones');
+    elSchoolZoneStatus = document.getElementById('schoolZoneStatus');
     elGroupTypes = document.getElementById('groupTypes');
     elVehicleGroups = document.getElementById('vehicleGroups');
     elVehicles = document.getElementById('vehicles');
@@ -1681,6 +1959,7 @@ geotab.addin.heatmap = function () {
     map.on('moveend zoomend', function () {
       updateMapEventTotal();
       renderMetricMarkers();
+      scheduleSchoolZoneReload();
     });
     updateMapEventTotal();
     var formatLocalDateTime = function formatLocalDateTime(date) {
@@ -1749,6 +2028,7 @@ geotab.addin.heatmap = function () {
       updateMapEventTotal();
     });
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
+    if (elShowSchoolZones) elShowSchoolZones.addEventListener('change', syncSchoolZoneVisibility);
     elGroupTypes.addEventListener('change', function () {
       populateVehicleGroupOptions();
       loadVehiclesForSelectedGroups();

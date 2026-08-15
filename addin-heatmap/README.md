@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.32**
+Current version: **1.0.33**
 
 ## Features
 
@@ -16,6 +16,7 @@ Current version: **1.0.32**
 - An optional **Show event details** overlay whose dots, labels, and callout lines use each vehicle's colour from the vehicle legend, with collision-limited labels, hover text, and clickable event information.
 - A top bar holding the date range, quick ranges, the action buttons, the status line, and the event totals readout.
 - A single-page layout that fits the viewport: only the controls column scrolls, and the map fills the remaining height.
+- An optional **Show school speed zones** overlay of the NZTA school speed zones, which flags events that exceed the school-zone limit.
 - A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
@@ -33,6 +34,15 @@ Current version: **1.0.32**
 
 Calculated g-force is an estimate based on available GPS samples, not a raw accelerometer measurement. If an event contains insufficient samples, the marker falls back to duration and the popup states that g-force is unavailable.
 
+## School Speed Zones
+
+Ticking **Show school speed zones** overlays the school speed zones published in the [NZTA National Speed Limit Register](https://opendata-nzta.opendata.arcgis.com/), using the `SpeedLimitZoneFull` view filtered to `speedLimitZoneReasonName = 'The presence of a school'` (about 6,800 zones nationally).
+
+- Only the zones intersecting the current map view are requested, and the overlay reloads as the map is panned once the zoom is 11 or closer. Zones already fetched stay cached in the page.
+- Mapped events inside a zone report the school-zone limit on their sign (yellow surround) instead of the posted road limit, and their popup names the school and its period of operation.
+- Variable zones publish the school-hours limit as their minimum value (for example 40 km/h inside a 50 km/h street), so that value is what school-zone speeding is measured against. The register does not expose machine-readable operating hours, so an event is flagged on location and speed alone — the tooltip shows the posted period so it can be checked before acting on the event.
+- The zone data is fetched from `services.arcgis.com` at runtime. If a browser or network policy blocks that host, the control reports the failure and the rest of the Add-In continues to work.
+
 ## Installation
 
 In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if required, and add this configuration:
@@ -41,7 +51,7 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "items": [
     {
       "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",

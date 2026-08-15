@@ -10,9 +10,9 @@
 
   <link rel="stylesheet" href="styles/vendor.css">
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.32">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.33">
   <script src="scripts/vendor.js"></script>
-  <script src="scripts/main.js?v=1.0.32"></script>
+  <script src="scripts/main.js?v=1.0.33"></script>
 </head>
 
 <body>
@@ -88,6 +88,12 @@
             Show heatmap layer
           </label>
 
+          <label class="exception-heat-toggle" for="showSchoolZones">
+            <input type="checkbox" id="showSchoolZones">
+            Show school speed zones
+          </label>
+          <small class="control-help" id="schoolZoneStatus"></small>
+
           <label for="groupTypes">Group type(s):</label>
           <select id="groupTypes" class="checkmateFormEditField multi-select-native" multiple></select>
 
@@ -113,6 +119,7 @@
               <li>Optionally select a group type and vehicle group, then select the vehicle(s) to search.</li>
               <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
               <li>In exception history, untick <i>Show heatmap layer</i> to keep exception data and event details without heat colouring.</li>
+              <li>Tick <i>Show school speed zones</i> to overlay the NZTA school speed zones for the current map view; events over a school-zone limit are counted in the school-zone legend and show that limit on their sign.</li>
               <li>Specify a date/time range and click <i>Show Results</i>.</li>
               <li>Use <i>Refresh data</i> after changing the MyGeotab Groups Filter or when fleet data changes.</li>
               <li>Open a Rule or Vehicle dropdown and tick every item you want to include.</li>
