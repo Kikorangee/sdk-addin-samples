@@ -571,7 +571,6 @@ label {
     width: 320px;
     max-width: 70%;
     height: 10px;
-    overflow: hidden;
     border-radius: 6px;
     background: #d8e4ec;
     box-shadow: 0 2px 10px rgba(15, 23, 42, 0.28);
@@ -582,7 +581,33 @@ label {
     visibility: visible;
 }
 
+.loading-progress > span {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 6px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: #0b2545;
+    color: #e8eef7;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: nowrap;
+}
+
 .loading-progress > div {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    overflow: hidden;
+    border-radius: 6px;
+}
+
+.loading-progress > div::after {
+    content: '';
     position: absolute;
     top: 0;
     bottom: 0;
@@ -592,11 +617,12 @@ label {
     opacity: 0.28;
 }
 
-.loading-progress.is-loading > div {
+.loading-progress.is-loading > div::after {
     width: 35%;
     opacity: 1;
     animation: heatmap-progress 1.1s ease-in-out infinite;
 }
+
 
 @keyframes heatmap-progress {
     from { left: -35%; }

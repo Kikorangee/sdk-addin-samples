@@ -85,6 +85,9 @@ geotab.addin.heatmap = function () {
   var schoolZoneById = {};
   var schoolZoneRequestId = 0;
   var schoolZoneReloadTimer = null;
+  var elLoadingLabel;
+  var mainLoadActive = false;
+  var zoneLoadActive = false;
 
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
@@ -789,6 +792,7 @@ geotab.addin.heatmap = function () {
     var bounds = map.getBounds();
     var requestId = ++schoolZoneRequestId;
     setSchoolZoneStatus('Loading speed zones\u2026');
+    toggleZoneLoading(true);
     var parameters = ['where=' + encodeURIComponent(speedZoneWhereClause()), 'geometry=' + encodeURIComponent([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')), 'geometryType=esriGeometryEnvelope', 'spatialRel=esriSpatialRelIntersects', 'inSR=4326', 'outSR=4326', 'outFields=' + encodeURIComponent('OBJECTID,speedLimitZoneName,rcaZoneReferenceName,speedCategoryName,speedLimitZoneReasonName,speedLimitZoneValue,speedLimitZoneMinValue,speedLimitZoneMaxValue,speedLimitZoneVarPrdDesc'), 'resultRecordCount=' + SCHOOL_ZONE_PAGE_SIZE, 'returnGeometry=true', 'f=geojson'].join('&');
     return fetch(SCHOOL_ZONE_SERVICE_URL + '?' + parameters, {
       credentials: 'omit'
@@ -797,6 +801,7 @@ geotab.addin.heatmap = function () {
       return response.json();
     }).then(function (collection) {
       if (requestId !== schoolZoneRequestId) return;
+      toggleZoneLoading(false);
       var added = 0;
       (collection.features || []).forEach(function (feature) {
         var zone = normalizeSchoolZone(feature);
@@ -824,6 +829,7 @@ geotab.addin.heatmap = function () {
       setSchoolZoneStatus(formatNumber(schoolZones.length) + ' speed zones loaded' + (added ? '' : ' (no new zones in this view)') + '; ' + formatNumber(zoneEventCount()) + ' mapped events inside them, ' + formatNumber(speedingCount) + ' over the zone limit.');
     })['catch'](function (error) {
       if (requestId !== schoolZoneRequestId) return;
+      toggleZoneLoading(false);
       setSchoolZoneStatus('Speed zones unavailable: ' + (error && error.message ? error.message : 'request failed') + '.');
     });
   }
@@ -839,6 +845,7 @@ geotab.addin.heatmap = function () {
     if (!elShowSchoolZones) return;
     if (!elShowSchoolZones.checked) {
       schoolZoneRequestId++;
+      toggleZoneLoading(false);
       setSchoolZoneStatus('');
       renderSchoolZoneLayer();
       displaySchoolZoneLegend();
@@ -1389,20 +1396,54 @@ geotab.addin.heatmap = function () {
    * @param {boolean} show - [true] to display the spinner, otherwise [false].
    */
   var toggleLoading = function toggleLoading(show) {
+    mainLoadActive = !!show;
     if (show) {
       elShowHeatMap.disabled = true;
-      elLoading.classList.add('is-loading');
-      elLoading.setAttribute('aria-busy', 'true');
-      elLoading.setAttribute('aria-valuetext', 'Loading map data');
+      showProgress('Loading map data\u2026');
     } else {
       setTimeout(function () {
-        elLoading.classList.remove('is-loading');
-        elLoading.setAttribute('aria-busy', 'false');
-        elLoading.setAttribute('aria-valuetext', 'Ready');
+        // A zone fetch may still be in flight and owns the bar until it ends.
+        if (mainLoadActive || zoneLoadActive) return;
+        hideProgress();
       }, 600);
       elShowHeatMap.disabled = false;
     }
   };
+
+  /**
+   * Shows the centred progress bar with a caption naming the current work.
+   * @param {string} label - Caption shown above the bar.
+   */
+  function showProgress(label) {
+    if (!elLoading) return;
+    elLoading.classList.add('is-loading');
+    elLoading.setAttribute('aria-busy', 'true');
+    elLoading.setAttribute('aria-valuetext', label);
+    if (elLoadingLabel) elLoadingLabel.textContent = label;
+  }
+  function hideProgress() {
+    if (!elLoading) return;
+    elLoading.classList.remove('is-loading');
+    elLoading.setAttribute('aria-busy', 'false');
+    elLoading.setAttribute('aria-valuetext', 'Ready');
+    if (elLoadingLabel) elLoadingLabel.textContent = '';
+  }
+
+  /**
+   * The zone overlay reports its own fetches on the same bar, without taking it
+   * away from a map data load that is still running.
+   * @param {boolean} show - [true] while a zone request is in flight.
+   */
+  function toggleZoneLoading(show) {
+    zoneLoadActive = !!show;
+    if (show) {
+      showProgress('Loading speed zones\u2026');
+    } else if (mainLoadActive) {
+      showProgress('Loading map data\u2026');
+    } else {
+      hideProgress();
+    }
+  }
 
   /**
    * Remove the HeatMap layer and add a new empty one.
@@ -2105,6 +2146,7 @@ geotab.addin.heatmap = function () {
     elError = document.getElementById('error');
     elMessage = document.getElementById('message');
     elLoading = document.getElementById('loading');
+    elLoadingLabel = document.getElementById('loading-label');
     elMapEventTotal = document.getElementById('map-event-total');
     window.addEventListener('beforeprint', preparePrintReport);
     window.addEventListener('afterprint', restoreAfterPrint);
