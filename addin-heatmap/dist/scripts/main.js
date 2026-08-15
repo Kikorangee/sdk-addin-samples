@@ -625,9 +625,18 @@ geotab.addin.heatmap = function () {
    * @param {object} metric - A mapped exception event.
    */
   function metricPassesZoneFilter(metric) {
-    if (!elEventsInZonesOnly || !elEventsInZonesOnly.checked) return true;
-    if (!elShowSchoolZones || !elShowSchoolZones.checked) return true;
+    if (!zoneFilterActive()) return true;
     return !!metric.schoolZone;
+  }
+
+  /**
+   * The filter can only be honoured once zones are loadable: below the minimum
+   * zoom no zone is known, so filtering would hide every event instead.
+   */
+  function zoneFilterActive() {
+    if (!elEventsInZonesOnly || !elEventsInZonesOnly.checked) return false;
+    if (!elShowSchoolZones || !elShowSchoolZones.checked) return false;
+    return !(map && map.getZoom() < SCHOOL_ZONE_MIN_ZOOM);
   }
 
   /**
@@ -766,7 +775,9 @@ geotab.addin.heatmap = function () {
   function loadSchoolZonesForView() {
     if (!map || !elShowSchoolZones || !elShowSchoolZones.checked) return Promise.resolve();
     if (map.getZoom() < SCHOOL_ZONE_MIN_ZOOM) {
-      setSchoolZoneStatus('Zoom in to load speed zones.');
+      setSchoolZoneStatus('Zoom in to load speed zones (zoom 11 or closer).' + (elEventsInZonesOnly && elEventsInZonesOnly.checked ? ' The zone filter is suspended until then, so every event stays on the map.' : ''));
+      renderMetricMarkers();
+      updateMapEventTotal();
       return Promise.resolve();
     }
     if (!selectedZoneCategories.length) {
