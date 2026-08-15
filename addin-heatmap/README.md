@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.34**
+Current version: **1.0.35**
 
 ## Features
 
@@ -36,7 +36,7 @@ Calculated g-force is an estimate based on available GPS samples, not a raw acce
 
 ## Speed Limit Zones
 
-Ticking **Show speed limit zones** overlays the zones published in the [NZTA National Speed Limit Register](https://opendata-nzta.opendata.arcgis.com/), using the `SpeedLimitZoneFull` view. The category picker is the posted limit itself (`speedLimitZoneValue`), so 10, 20, 30 … 110 km/h zones can be shown in any combination; each limit has its own colour, and 30 and 40 are selected by default. **School zones only** narrows the selection to `speedLimitZoneReasonName = 'The presence of a school'` (about 6,800 zones nationally), which are drawn with a solid, thicker outline.
+Ticking **Show speed limit zones** overlays the zones published in the [NZTA National Speed Limit Register](https://opendata-nzta.opendata.arcgis.com/), using the `SpeedLimitZoneFull` view. The category picker is the limit a zone enforces, so 10, 20, 30 … 110 km/h zones can be shown in any combination; each limit has its own colour, and 30, 40, 50 and 100 are selected by default. A variable zone enforces its minimum during the posted period, so it is matched on `speedLimitZoneMinValue` (a 50 km/h street with a 40 km/h school period counts as 40); zones without a minimum fall back to `speedLimitZoneValue`. When a view holds none of the selected limits the status line names them so the empty overlay is not mistaken for a failure. **School zones only** narrows the selection to `speedLimitZoneReasonName = 'The presence of a school'` (about 6,800 zones nationally), which are drawn with a solid, thicker outline.
 
 **Only events inside the selected zones** restricts the mapped events — speeding and every other exception type — to the zones currently loaded, and the event totals follow the same filter. The zone legend counts the events inside the zones and how many exceed the zone limit.
 
@@ -53,7 +53,7 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "items": [
     {
       "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",

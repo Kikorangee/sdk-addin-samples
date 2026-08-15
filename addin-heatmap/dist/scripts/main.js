@@ -54,7 +54,8 @@ geotab.addin.heatmap = function () {
   var SCHOOL_ZONE_SERVICE_URL = 'https://services.arcgis.com/CXBb7LAjgIIdcsPt/arcgis/rest/services/SpeedLimitZoneFull__View/FeatureServer/0/query';
   var SCHOOL_ZONE_REASON = 'The presence of a school';
   var SPEED_ZONE_CATEGORIES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110];
-  var SPEED_ZONE_DEFAULT_CATEGORIES = [30, 40];
+  // The limits common enough that the overlay shows something in most views.
+  var SPEED_ZONE_DEFAULT_CATEGORIES = [30, 40, 50, 100];
   // Distinct colour per category so overlapping limits stay readable.
   var SPEED_ZONE_COLORS = {
     10: '#7b1fa2',
@@ -765,7 +766,7 @@ geotab.addin.heatmap = function () {
   function loadSchoolZonesForView() {
     if (!map || !elShowSchoolZones || !elShowSchoolZones.checked) return Promise.resolve();
     if (map.getZoom() < SCHOOL_ZONE_MIN_ZOOM) {
-      setSchoolZoneStatus('Zoom in to load school zones.');
+      setSchoolZoneStatus('Zoom in to load speed zones.');
       return Promise.resolve();
     }
     if (!selectedZoneCategories.length) {
@@ -804,6 +805,11 @@ geotab.addin.heatmap = function () {
       renderMetricMarkers();
       updateMapEventTotal();
       var speedingCount = schoolZoneSpeedingCount();
+      if (!schoolZones.length) {
+        var schoolOnly = elSchoolZonesOnly && elSchoolZonesOnly.checked;
+        setSchoolZoneStatus('No ' + selectedZoneCategories.join('/') + ' km/h ' + (schoolOnly ? 'school ' : '') + 'zones in this view \u2014 ' + (schoolOnly ? 'untick School zones only or select more categories.' : 'select more speed zone categories.'));
+        return;
+      }
       setSchoolZoneStatus(formatNumber(schoolZones.length) + ' speed zones loaded' + (added ? '' : ' (no new zones in this view)') + '; ' + formatNumber(zoneEventCount()) + ' mapped events inside them, ' + formatNumber(speedingCount) + ' over the zone limit.');
     })['catch'](function (error) {
       if (requestId !== schoolZoneRequestId) return;
