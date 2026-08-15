@@ -362,6 +362,7 @@ geotab.addin.heatmap = function () {
     var label = formatDuration(durationMs);
     var detail = 'Duration: ' + label;
     var kind = 'duration';
+    var speedLimit = null;
     if (lowerName.indexOf('speed') > -1) {
       var bestExcess = -Infinity;
       var maxSpeed = -Infinity;
@@ -381,6 +382,7 @@ geotab.addin.heatmap = function () {
         }
       });
       if (bestLimit != null && bestExcess > -Infinity) {
+        speedLimit = Math.round(bestLimit);
         label = (bestExcess >= 0 ? '+' : '') + Math.round(bestExcess) + ' km/h';
         detail = 'Peak exceedance: ' + label + ' (vehicle ' + Math.round(Number(chosen.speed)) + ' km/h; posted limit ' + Math.round(bestLimit) + ' km/h)';
       } else {
@@ -427,6 +429,7 @@ geotab.addin.heatmap = function () {
       lon: Number(chosen.longitude),
       label: label,
       kind: kind,
+      speedLimit: speedLimit,
       ruleName: name,
       color: eventInfo.color,
       popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) + '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) + '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
@@ -454,7 +457,7 @@ geotab.addin.heatmap = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
         return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend. Heat colouring can be toggled separately in the Exceptions controls.</small>';
+      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -466,14 +469,43 @@ geotab.addin.heatmap = function () {
     };
     metricLegendControl.addTo(map);
   }
+  // A roundel of the posted limit sits above each mapped speeding event. Events
+  // cluster on the same stretch of road, so a sign is skipped when an identical
+  // limit is already drawn within 46px of it.
+  function addSpeedLimitSign(metric, acceptedSignPoints) {
+    if (metric.speedLimit == null) return;
+    var point = map.latLngToContainerPoint([metric.lat, metric.lon]);
+    var duplicate = acceptedSignPoints.some(function (other) {
+      return other.limit === metric.speedLimit && Math.abs(other.x - point.x) < 46 && Math.abs(other.y - point.y) < 46;
+    });
+    if (duplicate) return;
+    acceptedSignPoints.push({ x: point.x, y: point.y, limit: metric.speedLimit });
+    var sign = L.marker([metric.lat, metric.lon], {
+      icon: L.divIcon({
+        className: 'speed-limit-sign',
+        html: '<span>' + escapeHtml(String(metric.speedLimit)) + '</span>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 40]
+      }),
+      interactive: true,
+      zIndexOffset: -100
+    });
+    sign.bindTooltip('Posted speed limit: ' + metric.speedLimit + ' km/h', {
+      direction: 'top',
+      offset: [0, -6]
+    });
+    sign.addTo(metricMarkerLayer);
+  }
   function renderMetricMarkers() {
     if (metricMarkerLayer) map.removeLayer(metricMarkerLayer);
     metricMarkerLayer = L.layerGroup().addTo(map);
     if (!metricMapData.length || !metricDetailsVisible) return;
     var acceptedLabelPoints = [];
+    var acceptedSignPoints = [];
     var mapSize = map.getSize();
     metricMapData.forEach(function (metric) {
       if (!map.getBounds().contains(new L.LatLng(metric.lat, metric.lon))) return;
+      addSpeedLimitSign(metric, acceptedSignPoints);
       var calloutText = metric.ruleName + " \u2192 " + metric.label;
       var dot = L.circleMarker([metric.lat, metric.lon], {
         radius: 4,

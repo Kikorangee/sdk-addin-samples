@@ -137,6 +137,30 @@ select.checkmateFormEditField {
     overflow: visible;
 }
 
+.speed-limit-sign {
+    border: 0;
+    background: transparent;
+}
+
+.speed-limit-sign span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 34px;
+    height: 34px;
+    border: 5px solid #e30613;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    color: #101010;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.3px;
+}
+
 .event-metric-marker span {
     position: relative;
     display: block;
