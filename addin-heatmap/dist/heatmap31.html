@@ -10,10 +10,10 @@
 
   <link rel="stylesheet" href="styles/vendor.css">
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.41">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.42">
   <script src="scripts/vendor.js"></script>
-  <script src="scripts/weight-register.js?v=1.0.41"></script>
-  <script src="scripts/main.js?v=1.0.41"></script>
+  <script src="scripts/weight-register.js?v=1.0.42"></script>
+  <script src="scripts/main.js?v=1.0.42"></script>
 </head>
 
 <body>
@@ -80,32 +80,53 @@
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
           <input type="radio" id="visualizeByWeightHistory" name="visualizeBy" value="weightHistory"> Weight History
 
-          <label for="exceptionTypes">Other rule(s):</label>
-          <select id="exceptionTypes" class="checkmateFormEditField multi-select-native" multiple disabled>
-              <option disabled="disabled">Select one or more rules</option>
-          </select>
+          <section class="rule-section is-cache" id="dataSourceSection">
+            <h3>Data source</h3>
+            <label class="exception-heat-toggle" for="dataSourceApi">
+              <input type="radio" name="dataSource" id="dataSourceApi" value="api" checked>
+              MyGeotab API (always current)
+            </label>
+            <label class="exception-heat-toggle" for="dataSourceCache">
+              <input type="radio" name="dataSource" id="dataSourceCache" value="cache">
+              Local cache (faster history)
+            </label>
+            <label for="cacheBaseUrl">Cache address:</label>
+            <input type="text" id="cacheBaseUrl" class="checkmateFormEditField" value="http://127.0.0.1:8765/data-postgres" spellcheck="false">
+            <small class="control-help" id="cacheStatus"></small>
+          </section>
 
-          <label class="exception-heat-toggle" for="showExceptionHeatMap">
-            <input type="checkbox" id="showExceptionHeatMap" checked disabled>
-            Show heatmap layer
-          </label>
+          <section class="rule-section is-other" id="otherSection">
+            <h3>Other exceptions</h3>
+            <label for="exceptionTypes">Other rule(s):</label>
+            <select id="exceptionTypes" class="checkmateFormEditField multi-select-native" multiple disabled>
+                <option disabled="disabled">Select one or more rules</option>
+            </select>
 
-          <label class="exception-heat-toggle" for="showSchoolZones">
-            <input type="checkbox" id="showSchoolZones">
-            Show speed limit zones
-          </label>
-          <div class="speed-zone-categories" id="speedZoneCategories"></div>
-          <label class="exception-heat-toggle" for="schoolZonesOnly">
-            <input type="checkbox" id="schoolZonesOnly">
-            School zones only
-          </label>
-          <label class="exception-heat-toggle" for="eventsInZonesOnly">
-            <input type="checkbox" id="eventsInZonesOnly">
-            Only events inside the selected zones
-          </label>
-          <small class="control-help" id="schoolZoneStatus"></small>
+            <label class="exception-heat-toggle" for="showExceptionHeatMap">
+              <input type="checkbox" id="showExceptionHeatMap" checked disabled>
+              Show heatmap layer
+            </label>
+          </section>
 
-          <section class="rule-section" id="speedingSection">
+          <section class="rule-section is-zones" id="zoneSection">
+            <h3>Speed limit zones</h3>
+            <label class="exception-heat-toggle" for="showSchoolZones">
+              <input type="checkbox" id="showSchoolZones">
+              Show speed limit zones
+            </label>
+            <div class="speed-zone-categories" id="speedZoneCategories"></div>
+            <label class="exception-heat-toggle" for="schoolZonesOnly">
+              <input type="checkbox" id="schoolZonesOnly">
+              School zones only
+            </label>
+            <label class="exception-heat-toggle" for="eventsInZonesOnly">
+              <input type="checkbox" id="eventsInZonesOnly">
+              Only events inside the selected zones
+            </label>
+            <small class="control-help" id="schoolZoneStatus"></small>
+          </section>
+
+          <section class="rule-section is-speeding" id="speedingSection">
             <h3>Speeding</h3>
             <label for="speedingRules">Speeding rule(s):</label>
             <select id="speedingRules" class="checkmateFormEditField multi-select-native" multiple disabled></select>
@@ -118,7 +139,7 @@
             </label>
           </section>
 
-          <section class="rule-section" id="idlingSection">
+          <section class="rule-section is-idling" id="idlingSection">
             <h3>Idling</h3>
             <label for="idlingRules">Idling rule(s):</label>
             <select id="idlingRules" class="checkmateFormEditField multi-select-native" multiple disabled></select>
@@ -143,7 +164,7 @@
             <small class="control-help" id="idleCostStatus"></small>
           </section>
 
-          <section class="rule-section" id="weightSection">
+          <section class="rule-section is-weight" id="weightSection">
             <h3>Weight</h3>
             <label for="weightFallbackTonnes">Fallback payload limit (t):</label>
             <div class="idle-cost-inputs">
@@ -162,7 +183,7 @@
             <small class="control-help" id="weightStatus"></small>
           </section>
 
-          <section class="rule-section" id="liveSection">
+          <section class="rule-section is-live" id="liveSection">
             <h3>Live monitor</h3>
             <label class="exception-heat-toggle" for="liveMonitor">
               <input type="checkbox" id="liveMonitor">
@@ -186,6 +207,10 @@
             <label class="exception-heat-toggle" for="liveExceptionAlerts">
               <input type="checkbox" id="liveExceptionAlerts" checked>
               Alert on new exceptions for the selected rules
+            </label>
+            <label class="exception-heat-toggle" for="liveAutoZoom">
+              <input type="checkbox" id="liveAutoZoom" checked>
+              Zoom to a vehicle when it starts alerting
             </label>
             <label class="exception-heat-toggle" for="liveAlertsOnly">
               <input type="checkbox" id="liveAlertsOnly">

@@ -211,6 +211,14 @@ select.checkmateFormEditField {
     cursor: pointer;
 }
 
+.speed-zone-category { background: color-mix(in srgb, var(--zone-color, #8492a6) 18%, transparent); }
+.speed-zone-category:has(input:checked) {
+    background: color-mix(in srgb, var(--zone-color, #8492a6) 45%, transparent);
+    border-width: 2px;
+    padding: 1px 5px;
+    font-weight: 700;
+}
+
 .speed-zone-category input { margin: 0; accent-color: var(--zone-color, #8492a6); }
 
 /* Risk Management speed bands, in the exception legend and event popups. */
@@ -222,6 +230,15 @@ select.checkmateFormEditField {
     background: #e6eef8;
     color: #14395f;
     font-weight: 700;
+}
+
+.metric-legend-rule { display: flex; align-items: center; gap: 6px; }
+.metric-legend-rule i {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 auto;
+    border-radius: 2px;
+    background: var(--category-color, #90a4ae);
 }
 
 .metric-legend .speed-band-heading { display: block; margin-top: 6px; }
@@ -252,20 +269,48 @@ select.checkmateFormEditField {
     color: #4a2c00;
 }
 
-/* Speeding and idling own their controls, away from the generic rule dropdown. */
+/* Each control group owns its colour, so speeding, idling, weight, the generic
+   rules and the live monitor are told apart at a glance in the sidebar. */
 .rule-section {
+    --section-color: #8492a6;
     margin: 8px 0 4px;
     padding: 6px 8px 8px;
     border: 1px solid rgba(255, 255, 255, 0.18);
+    border-left: 4px solid var(--section-color);
     border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .rule-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     margin: 2px 0 4px;
+    color: var(--section-color);
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
+
+.rule-section h3::before {
+    content: '';
+    width: 9px;
+    height: 9px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--section-color);
+}
+
+.rule-section.is-speeding { --section-color: #ff7043; }
+.rule-section.is-idling { --section-color: #4fc3f7; }
+.rule-section.is-weight { --section-color: #b388ff; }
+.rule-section.is-zones { --section-color: #9ccc65; }
+.rule-section.is-live { --section-color: #4db6ac; }
+.rule-section.is-other { --section-color: #90a4ae; }
+.rule-section.is-cache { --section-color: #ffd54f; }
+.rule-section.is-cache.is-cache-active { background: rgba(255, 213, 79, 0.12); }
+
+#controls .control-help.is-error { color: #ff8a80; }
 
 .idle-cost-inputs {
     display: flex;
@@ -326,6 +371,55 @@ select.checkmateFormEditField {
 @keyframes live-alert-pulse {
     0%, 100% { stroke-opacity: 1; }
     50% { stroke-opacity: 0.25; }
+}
+
+/* A live load reading, drawn like a posted-limit roundel: current tonnes over
+   the limit it is measured against, ringed in its status colour. */
+.live-weight-sign {
+    border: 0;
+    background: transparent;
+}
+
+.live-weight-sign span {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 40px;
+    height: 40px;
+    border: 4px solid #6f7c8a;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    color: #101010;
+    font-family: Arial, Helvetica, sans-serif;
+    line-height: 1;
+}
+
+.live-weight-sign span b {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.live-weight-sign span i {
+    color: #4a5568;
+    font-size: 9px;
+    font-style: normal;
+}
+
+.live-weight-sign.is-over span {
+    animation: live-sign-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-sign-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.7), 0 1px 3px rgba(0, 0, 0, 0.35); }
+    50% { box-shadow: 0 0 0 7px rgba(211, 47, 47, 0), 0 1px 3px rgba(0, 0, 0, 0.35); }
+}
+
+.live-vehicle-label.is-alerting span {
+    background: rgba(160, 20, 20, 0.9);
+    font-weight: 700;
 }
 
 .live-vehicle-label span {

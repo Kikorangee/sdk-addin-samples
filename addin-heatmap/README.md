@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.41**
+Current version: **1.0.42**
 
 ## Features
 
@@ -18,7 +18,9 @@ Current version: **1.0.41**
 - A single-page layout that fits the viewport: only the controls column scrolls, and the map fills the remaining height.
 - An optional **Show speed limit zones** overlay of the NZTA speed limit zones, selectable by posted limit (10&ndash;110 km/h), which flags events that exceed the limit of the zone they fall inside and can restrict the mapped events to those zones.
 - A **Weight History** mode that maps recorded cargo weight against the axle scale register.
-- A **Live monitor** that polls current vehicle positions on the same map and flags speed, payload and new-exception alerts.
+- A **Live monitor** that polls current vehicle positions on the same map and flags speed, payload and new-exception alerts, drawing each live load as a roundel of current tonnes over its register limit, labelling the vehicle with its weight and speed, and optionally zooming to a vehicle as it starts alerting.
+- A selectable **Data source**: history can be read from a local cache (the pre-generated `cache-index.js` plus `months/YYYY-MM.js` aggregate files served by the local cache viewer) instead of the MyGeotab API, with the cache's coverage and build time shown. Weight history and the live monitor always read MyGeotab, and cache mode plots day/grid-cell heat only, so event details, speed bands, ring-fencing and the per-event print table need the API source.
+- Colour-coded control sections and legend rows so speeding, idling, other exceptions, weight, speed zones, the live monitor and the data source read apart at a glance.
 - A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
@@ -74,7 +76,7 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "items": [
     {
       "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",

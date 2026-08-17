@@ -147,6 +147,14 @@ geotab.addin.heatmap = function () {
   };
   var weightDiagnosticId = null;
   var elWeightFallbackTonnes;
+  var elDataSourceCache;
+  var elCacheBaseUrl;
+  var elCacheStatus;
+  var cacheIndex = null;
+  var cacheMonths = {};
+  var cacheScripts = {};
+  var CACHE_URL_STORAGE_KEY = 'heatmap.cacheBaseUrl';
+  var CACHE_SCRIPT_TIMEOUT_MS = 30000;
   var elWeightWarnPct;
   var elWeightOverOnly;
   var elTopWeightOnly;
@@ -165,12 +173,18 @@ geotab.addin.heatmap = function () {
   var liveVehicles = [];
   var liveAlertLog = [];
   var liveExceptionsByDevice = {};
+  // Which vehicle/alert pairs have already been zoomed to, so a vehicle held
+  // over its limit is only chased once rather than on every poll.
+  var liveFocusedAlerts = {};
+  var liveMarkersById = {};
+  var LIVE_FOCUS_ZOOM = 14;
   var elLiveMonitor;
   var elLiveInterval;
   var elLiveSpeedThreshold;
   var elLiveWeightAlerts;
   var elLiveExceptionAlerts;
   var elLiveAlertsOnly;
+  var elLiveAutoZoom;
   var elLiveAlerts;
   var elLiveStatus;
 
@@ -269,7 +283,7 @@ geotab.addin.heatmap = function () {
   function updateMapEventTotal() {
     if (!elMapEventTotal) return;
     var bounds = map && map.getBounds ? map.getBounds() : null;
-    var exceptionMode = eventModeActive();
+    var exceptionMode = eventModeActive() && !cacheModeActive();
     var visibleCount = 0;
     var totalCount = 0;
     var countablePoints = exceptionMode ? metricMapData : heatMapPoints;
@@ -281,8 +295,9 @@ geotab.addin.heatmap = function () {
         visibleCount += weight;
       }
     });
-    var noun = weightModeActive() ? 'weight events' : exceptionMode ? 'exceptions' : 'GPS points';
-    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + noun + ' in view</span>' + '<small>' + formatNumber(totalCount) + ' ' + (exceptionMode ? 'mapped ' + noun + ' loaded' : 'GPS points loaded') + '</small>';
+    var cachedEvents = cacheModeActive() && eventModeActive();
+    var noun = weightModeActive() ? 'weight events' : exceptionMode ? 'exceptions' : cachedEvents ? 'cached exception events' : 'GPS points';
+    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + noun + ' in view</span>' + '<small>' + formatNumber(totalCount) + ' ' + (exceptionMode ? 'mapped ' + noun + ' loaded' : cachedEvents ? 'cached exception events loaded' : 'GPS points loaded') + '</small>';
   }
   /**
    * The events the printed table lists: everything currently drawn on the map,
@@ -316,7 +331,7 @@ geotab.addin.heatmap = function () {
       document.getElementById('heatmap').appendChild(container);
     }
     if (!exceptionMode) {
-      container.innerHTML = '<p class="print-table-note">Location history plots GPS points only, so there is no per-event table to print. Switch to exception history for a table of results.</p>';
+      container.innerHTML = '<p class="print-table-note">' + (cacheModeActive() ? 'The local cache stores day and grid cell totals rather than individual events, so there is no per-event table to print. Switch the data source to the MyGeotab API for a table of results.' : 'Location history plots GPS points only, so there is no per-event table to print. Switch to exception history for a table of results.') + '</p>';
       return;
     }
     var metrics = printableMetrics();
@@ -376,7 +391,7 @@ geotab.addin.heatmap = function () {
       header.innerHTML = '<div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>' + '<strong id="printReportSummary"></strong>';
       document.getElementById('heatmap').insertBefore(header, document.getElementById('heatmap').firstChild);
     }
-    var exceptionMode = eventModeActive();
+    var exceptionMode = eventModeActive() && !cacheModeActive();
     var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
       return option.text;
     });
@@ -978,6 +993,25 @@ geotab.addin.heatmap = function () {
     if (weightOnly && metric.topWeightRank) return true;
     return false;
   }
+  var CATEGORY_COLORS = {
+    speeding: '#ff7043',
+    idling: '#4fc3f7',
+    weight: '#b388ff',
+    other: '#90a4ae'
+  };
+
+  /**
+   * Which control section an event belongs to, so its legend row carries the
+   * same colour as the section that produced it.
+   * @param {object} metric - A mapped event.
+   */
+  function metricCategory(metric) {
+    if (weightModeActive() || (metric && metric.weight)) return 'weight';
+    var rule = { name: (metric && metric.ruleName) || '' };
+    if (ruleIsIdling(rule)) return 'idling';
+    if (ruleIsSpeeding(rule)) return 'speeding';
+    return 'other';
+  }
   function ruleIsSpeeding(rule) {
     var name = String((rule && rule.name) || '').toLowerCase();
     var id = String((rule && rule.id) || '');
@@ -1110,6 +1144,199 @@ geotab.addin.heatmap = function () {
   function formatTonnes(kg, digits) {
     if (!Number.isFinite(kg)) return '\u2013';
     return (kg / 1000).toFixed(digits == null ? 2 : digits);
+  }
+  function cacheModeSelected() {
+    return !!(elDataSourceCache && elDataSourceCache.checked);
+  }
+
+  /**
+   * Weight history and the live monitor are not in the offline cache, so they
+   * always read MyGeotab even when the cache is selected.
+   */
+  function cacheModeActive() {
+    return cacheModeSelected() && !weightModeActive();
+  }
+  function setCacheStatus(text, isError) {
+    if (!elCacheStatus) return;
+    elCacheStatus.textContent = text || '';
+    elCacheStatus.classList.toggle('is-error', !!isError);
+  }
+  function cacheBaseUrl() {
+    var value = String((elCacheBaseUrl && elCacheBaseUrl.value) || '').trim();
+    return value.replace(/\/+$/, '');
+  }
+  function loadCacheScript(url) {
+    if (cacheScripts[url]) return cacheScripts[url];
+    cacheScripts[url] = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      var timer = setTimeout(function () {
+        script.remove();
+        reject(new Error('timed out loading ' + url));
+      }, CACHE_SCRIPT_TIMEOUT_MS);
+      script.src = url;
+      script.onload = function () {
+        clearTimeout(timer);
+        resolve();
+      };
+      script.onerror = function () {
+        clearTimeout(timer);
+        script.remove();
+        reject(new Error('could not load ' + url));
+      };
+      document.head.appendChild(script);
+    });
+    cacheScripts[url].catch(function () {
+      delete cacheScripts[url];
+    });
+    return cacheScripts[url];
+  }
+  window.registerHeatmapMonth = function (monthId, payload) {
+    cacheMonths[monthId] = payload || {};
+  };
+  function loadCacheIndex() {
+    if (cacheIndex) return Promise.resolve(cacheIndex);
+    var base = cacheBaseUrl();
+    if (!base) return Promise.reject(new Error('no cache address is set'));
+    return loadCacheScript(base + '/cache-index.js').then(function () {
+      cacheIndex = window.HEATMAP_INDEX || null;
+      if (!cacheIndex) throw new Error('the cache index did not load any data');
+      return cacheIndex;
+    });
+  }
+  function cacheMonthIds(from, to) {
+    var ids = [];
+    var cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+    var last = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1);
+    while (cursor.getTime() <= last && ids.length < 24) {
+      ids.push(cursor.toISOString().slice(0, 7));
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    return ids;
+  }
+
+  /**
+   * Only the months the cache index knows about are requested, so a range wider
+   * than the cache does not produce a run of failed script loads.
+   */
+  function loadCacheMonths(ids) {
+    var base = cacheBaseUrl();
+    var known = (cacheIndex && cacheIndex.months || []).map(function (month) {
+      return String(month.id || month);
+    });
+    var wanted = ids.filter(function (id) {
+      return !known.length || known.indexOf(id) !== -1;
+    });
+    return Promise.all(wanted.map(function (id) {
+      if (cacheMonths[id]) return Promise.resolve();
+      return loadCacheScript(base + '/months/' + id + '.js');
+    })).then(function () {
+      return wanted;
+    });
+  }
+  function cacheCoverageText() {
+    var meta = (cacheIndex && cacheIndex.meta) || {};
+    var built = meta.generatedAt ? new Date(meta.generatedAt) : null;
+    return 'Cache covers ' + String(meta.from || '?').slice(0, 10) + ' to ' + String(meta.to || '?').slice(0, 10) + (built && !Number.isNaN(built.getTime()) ? ', built ' + built.toLocaleString() : '');
+  }
+
+  /**
+   * Draws the heat layer from the offline cache. The cache stores day and grid
+   * cell totals rather than individual events, so this is heat only: event
+   * markers, measures and the per-event print table stay on the API path.
+   */
+  var displayCachedHeatMap = function displayCachedHeatMap() {
+    var deviceIds = selectedDeviceIds();
+    var ruleIds = exceptionModeActive() ? selectedExceptionRules().map(function (rule) {
+      return rule.id;
+    }) : [];
+    var fromValue = elDateFromInput.value;
+    var toValue = elDateToInput.value;
+    if (!deviceIds.length || fromValue === '' || toValue === '') return;
+    errorHandler('');
+    messageHandler('');
+    metricMapData = [];
+    renderMetricMarkers();
+    toggleLoading(true);
+    showProgress('Loading cached history\u2026');
+    var from = new Date(fromValue);
+    var to = new Date(toValue);
+    var fromDay = from.toISOString().slice(0, 10);
+    var toDay = to.toISOString().slice(0, 10);
+    loadCacheIndex().then(function () {
+      return loadCacheMonths(cacheMonthIds(from, to));
+    }).then(function (months) {
+      var wantedDevices = {};
+      deviceIds.forEach(function (id) {
+        wantedDevices[id] = true;
+      });
+      var wantedRules = {};
+      ruleIds.forEach(function (id) {
+        wantedRules[id] = true;
+      });
+      var cells = {};
+      var records = 0;
+      var days = 0;
+      months.forEach(function (monthId) {
+        var month = cacheMonths[monthId] || {};
+        var rows = (exceptionModeActive() ? month.exceptions : month.location) || [];
+        rows.forEach(function (row) {
+          if (row.date < fromDay || row.date > toDay) return;
+          if (!wantedDevices[row.deviceId]) return;
+          if (ruleIds.length && !wantedRules[row.ruleId]) return;
+          records += Number(row.rawCount || row.eventCount) || 0;
+          days++;
+          (row.cells || []).forEach(function (cell) {
+            var lat = Number(cell[0]);
+            var lon = Number(cell[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+            var key = lat.toFixed(5) + ',' + lon.toFixed(5);
+            if (cells[key]) cells[key].value += Math.max(1, Number(cell[2]) || 1);
+            else cells[key] = { lat: lat, lon: lon, value: Math.max(1, Number(cell[2]) || 1) };
+          });
+        });
+      });
+      var coordinates = Object.keys(cells).map(function (key) {
+        return cells[key];
+      });
+      if (!coordinates.length) {
+        errorHandler('The cache holds no ' + (exceptionModeActive() ? 'exceptions' : 'locations') + ' for the selected vehicles and dates. ' + cacheCoverageText() + '.');
+        setCacheStatus(cacheCoverageText() + '.');
+        toggleLoading(false);
+        return;
+      }
+      coordinates = filterPointsBySelectedZones(coordinates);
+      if (!coordinates.length) {
+        errorHandler('No cached data falls inside the selected zone(s).');
+        toggleLoading(false);
+        return;
+      }
+      setHeatMapPoints(coordinates);
+      heatMapLayer.setLatLngs(coordinates);
+      map.fitBounds(coordinates.map(function (point) {
+        return new L.LatLng(point.lat, point.lon);
+      }));
+      updateMapEventTotal();
+      messageHandler('Displaying ' + formatNumber(coordinates.length) + ' cached heat cells from ' + formatNumber(records) + ' ' + (exceptionModeActive() ? 'exception events' : 'log records') + ' across ' + formatNumber(days) + ' vehicle days. [' + getElapsedTimeSeconds() + ' sec]');
+      errorHandler('Note: the cache stores day and grid cell totals, so event details, measures, speed bands, ring-fencing and the per-event print table need the MyGeotab API data source.');
+      setCacheStatus(cacheCoverageText() + '.');
+      toggleLoading(false);
+    })['catch'](function (error) {
+      setCacheStatus('Cache unavailable: ' + (error && error.message ? error.message : 'unknown error') + '. Check the cache address and that the local viewer is running.', true);
+      errorHandler('Could not read the local cache, so nothing was displayed. Switch to the MyGeotab API data source, or start the local cache viewer.');
+      toggleLoading(false);
+    });
+  };
+
+  /**
+   * The selected vehicle ids, shared by the API and cache paths.
+   */
+  function selectedDeviceIds() {
+    var ids = [];
+    if (!elVehicles) return ids;
+    for (var i = 0; i < elVehicles.options.length; i++) {
+      if (elVehicles.options[i].selected) ids.push(elVehicles.options[i].value || elVehicles.options[i].text);
+    }
+    return ids;
   }
   function setWeightStatus(text) {
     if (elWeightStatus) elWeightStatus.textContent = text || '';
@@ -1509,6 +1736,7 @@ geotab.addin.heatmap = function () {
       if (!seen[metric.ruleName]) {
         seen[metric.ruleName] = {
           name: metric.ruleName,
+          category: metricCategory(metric),
           count: 0
         };
         rules.push(seen[metric.ruleName]);
@@ -1522,7 +1750,7 @@ geotab.addin.heatmap = function () {
     metricLegendControl.onAdd = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>' + (weightModeActive() ? 'Weight legend' : 'Exception legend') + '</strong>' + rules.map(function (rule) {
-        return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
+        return '<span class="metric-legend-rule is-' + rule.category + '" style="--category-color:' + CATEGORY_COLORS[rule.category] + '"><i></i>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
       }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + weightLegendRows() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>' + (weightModeActive() ? 'Marker fill is the vehicle colour and the ring shows how the load compares with the axle scale register; heat intensity follows the percentage of the payload limit.' : 'Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.') + '</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
@@ -2198,7 +2426,9 @@ geotab.addin.heatmap = function () {
     rememberSelectedVehiclesInLegend();
     displayVehicleLegend();
     startTime = new Date();
-    if (weightModeActive()) {
+    if (cacheModeActive()) {
+      displayCachedHeatMap();
+    } else if (weightModeActive()) {
       displayWeightHistoryMap();
     } else if (exceptionModeActive()) {
       displayHeatMapForExceptionHistory();
@@ -2758,7 +2988,7 @@ geotab.addin.heatmap = function () {
   // System Settings configuration, so an outdated page can be served alongside
   // the current script. Reporting the missing ids makes that visible instead of
   // leaving a loaded but inert Add-In.
-  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'speedingRules', 'idlingRules', 'idleMinMinutes', 'idleFuelBurn', 'idleFuelPrice', 'topIdlingOnly', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory', 'visualizeByWeightHistory', 'weightFallbackTonnes', 'weightWarnPct', 'weightOverOnly', 'topWeightOnly', 'liveMonitor', 'liveInterval', 'liveSpeedThreshold', 'liveAlerts'];
+  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'speedingRules', 'idlingRules', 'idleMinMinutes', 'idleFuelBurn', 'idleFuelPrice', 'topIdlingOnly', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory', 'visualizeByWeightHistory', 'weightFallbackTonnes', 'weightWarnPct', 'weightOverOnly', 'topWeightOnly', 'liveMonitor', 'liveInterval', 'liveSpeedThreshold', 'liveAutoZoom', 'liveAlerts'];
   var reportUnsupportedPage = function reportUnsupportedPage(missingIds) {
     var message = 'This Heat Map page is out of date and is missing: ' + missingIds.join(', ') + '. Update the MyGeotab Add-In configuration URL to the current Heat Map page, then reload.';
     var banner = document.createElement('div');
@@ -3216,6 +3446,7 @@ geotab.addin.heatmap = function () {
         pushLiveAlert({
           stamp: stamp,
           vehicle: nameById[deviceId] || deviceId,
+          deviceId: deviceId,
           kind: 'exception',
           text: ruleIds[ruleId]
         });
@@ -3258,14 +3489,56 @@ geotab.addin.heatmap = function () {
     liveVehicles.forEach(function (vehicle) {
       vehicle.alerts.forEach(function (alert) {
         if (alert.kind === 'exception') return;
-        pushLiveAlert({ stamp: Date.now(), vehicle: vehicle.name, kind: alert.kind, text: alert.text });
+        pushLiveAlert({ stamp: Date.now(), vehicle: vehicle.name, deviceId: vehicle.id, kind: alert.kind, text: alert.text });
       });
     });
     renderLiveVehicles();
+    focusNewLiveAlerts();
     var alerting = liveVehicles.filter(function (vehicle) {
       return vehicle.alerts.length;
     }).length;
     setLiveStatus(formatNumber(liveVehicles.length) + ' vehicles live \u2022 ' + formatNumber(alerting) + ' alerting \u2022 updated ' + new Date().toLocaleTimeString() + ' \u2022 next in ' + Math.round(liveIntervalMs() / 1000) + ' s', alerting > 0);
+  }
+
+  /**
+   * Zooms the map to a vehicle that has just started alerting and opens its
+   * popup, so the reading that triggered the alert is readable without hunting
+   * for the marker. A vehicle is only chased once per alert episode.
+   */
+  function focusNewLiveAlerts() {
+    if (!map || !(elLiveAutoZoom && elLiveAutoZoom.checked)) return;
+    var live = {};
+    var target = null;
+    liveVehicles.forEach(function (vehicle) {
+      vehicle.alerts.forEach(function (alert) {
+        var key = vehicle.id + '|' + alert.kind;
+        live[key] = true;
+        if (liveFocusedAlerts[key] || target) return;
+        // An overweight vehicle outranks a speed or exception alert, since the
+        // load is the thing that cannot be fixed by slowing down.
+        if (!target || alert.kind === 'weight') target = { vehicle: vehicle, key: key };
+      });
+    });
+    Object.keys(liveFocusedAlerts).forEach(function (key) {
+      if (!live[key]) delete liveFocusedAlerts[key];
+    });
+    if (!target) return;
+    liveFocusedAlerts[target.key] = true;
+    focusLiveVehicle(target.vehicle.id);
+  }
+
+  /**
+   * Centres the map on a live vehicle and opens its details.
+   * @param {string} deviceId - The vehicle to show.
+   */
+  function focusLiveVehicle(deviceId) {
+    var vehicle = liveVehicles.filter(function (candidate) {
+      return candidate.id === deviceId;
+    })[0];
+    if (!map || !vehicle) return;
+    map.setView([vehicle.lat, vehicle.lon], Math.max(map.getZoom() || 0, LIVE_FOCUS_ZOOM));
+    var marker = liveMarkersById[deviceId];
+    if (marker && marker.openPopup) marker.openPopup();
   }
 
   /**
@@ -3280,6 +3553,7 @@ geotab.addin.heatmap = function () {
     if (existing) {
       existing.stamp = alert.stamp;
       existing.text = alert.text;
+      existing.deviceId = alert.deviceId || existing.deviceId;
       existing.count = (existing.count || 1) + 1;
     } else {
       alert.count = 1;
@@ -3298,7 +3572,7 @@ geotab.addin.heatmap = function () {
       return;
     }
     elLiveAlerts.innerHTML = liveAlertLog.map(function (alert) {
-      return '<li class="live-alert live-alert-' + alert.kind + '"><b>' + escapeHtml(alert.vehicle) + '</b> ' + escapeHtml(alert.text) + '<small>' + new Date(alert.stamp).toLocaleTimeString() + (alert.count > 1 ? ' \u00b7 ' + alert.count + '\u00d7' : '') + '</small></li>';
+      return '<li class="live-alert live-alert-' + alert.kind + '" data-device="' + escapeHtml(String(alert.deviceId || '')) + '" title="Show this vehicle on the map"><b>' + escapeHtml(alert.vehicle) + '</b> ' + escapeHtml(alert.text) + '<small>' + new Date(alert.stamp).toLocaleTimeString() + (alert.count > 1 ? ' \u00b7 ' + alert.count + '\u00d7' : '') + '</small></li>';
     }).join('');
   }
 
@@ -3314,6 +3588,7 @@ geotab.addin.heatmap = function () {
       return;
     }
     liveLayer = L.layerGroup().addTo(map);
+    liveMarkersById = {};
     var alertsOnly = !!(elLiveAlertsOnly && elLiveAlertsOnly.checked);
     liveVehicles.forEach(function (vehicle) {
       var alerting = vehicle.alerts.length > 0;
@@ -3335,18 +3610,51 @@ geotab.addin.heatmap = function () {
         return escapeHtml(alert.text);
       }).join('<br>') + '</span>' : ''));
       marker.addTo(liveLayer);
-      if (alerting) {
+      liveMarkersById[vehicle.id] = marker;
+      addLiveWeightSign(vehicle);
+      // The label carries the numbers, so an alert can be read off the map
+      // without opening anything.
+      var labelText = vehicle.name + (vehicle.weightKg != null ? ' \u2022 ' + formatTonnes(vehicle.weightKg) + ' t' + (vehicle.limits.alertKg ? ' (' + Math.round(vehicle.weightKg / vehicle.limits.alertKg * 100) + '%)' : '') : '') + (vehicle.driving ? ' \u2022 ' + vehicle.speed + ' km/h' : '');
+      if (alerting || vehicle.weightKg != null) {
         L.marker([vehicle.lat, vehicle.lon], {
           icon: L.divIcon({
-            className: 'live-vehicle-label',
-            html: '<span>' + escapeHtml(vehicle.name) + '</span>',
-            iconSize: [90, 20],
+            className: 'live-vehicle-label' + (alerting ? ' is-alerting' : ''),
+            html: '<span>' + escapeHtml(labelText) + '</span>',
+            iconSize: [200, 20],
             iconAnchor: [-8, 10]
           }),
           interactive: false
         }).addTo(liveLayer);
       }
     });
+  }
+
+  /**
+   * A roundel beside a live vehicle showing its current load and the limit it
+   * is measured against, mirroring the posted-limit signs on speeding events.
+   * @param {object} vehicle - A live vehicle from applyLiveResults.
+   */
+  function addLiveWeightSign(vehicle) {
+    if (vehicle.weightKg == null) return;
+    var limitKg = vehicle.limits && vehicle.limits.alertKg;
+    var color = WEIGHT_STATUS_COLORS[vehicle.weightStatus] || '#6f7c8a';
+    var pct = limitKg ? Math.round(vehicle.weightKg / limitKg * 100) : null;
+    var sign = L.marker([vehicle.lat, vehicle.lon], {
+      icon: L.divIcon({
+        className: 'live-weight-sign' + (weightStatusIsOver(vehicle.weightStatus) ? ' is-over' : ''),
+        html: '<span style="border-color:' + color + '"><b>' + escapeHtml(formatTonnes(vehicle.weightKg)) + '</b><i>' + escapeHtml(limitKg ? '/' + formatTonnes(limitKg) : 't') + '</i></span>',
+        iconSize: [40, 40],
+        // Above the label, which sits at the same point.
+        iconAnchor: [-8, 46]
+      }),
+      interactive: true,
+      zIndexOffset: 400
+    });
+    sign.bindTooltip(escapeHtml(vehicle.name + ' \u2014 cargo ' + formatTonnes(vehicle.weightKg) + ' t' + (limitKg ? ' of ' + formatTonnes(limitKg) + ' t limit' + (pct != null ? ' (' + pct + '%)' : '') : ' (no register limit, fallback threshold)') + ' \u2014 ' + (WEIGHT_STATUS_LABELS[vehicle.weightStatus] || 'unknown')), {
+      direction: 'top',
+      offset: [0, -6]
+    });
+    sign.addTo(liveLayer);
   }
 
   var initializeInterface = function initializeInterface(coords) {
@@ -3392,6 +3700,9 @@ geotab.addin.heatmap = function () {
     elIdleFuelPrice = document.getElementById('idleFuelPrice');
     elTopIdlingOnly = document.getElementById('topIdlingOnly');
     elIdleCostStatus = document.getElementById('idleCostStatus');
+    elDataSourceCache = document.getElementById('dataSourceCache');
+    elCacheBaseUrl = document.getElementById('cacheBaseUrl');
+    elCacheStatus = document.getElementById('cacheStatus');
     elWeightFallbackTonnes = document.getElementById('weightFallbackTonnes');
     elWeightWarnPct = document.getElementById('weightWarnPct');
     elWeightOverOnly = document.getElementById('weightOverOnly');
@@ -3403,6 +3714,7 @@ geotab.addin.heatmap = function () {
     elLiveWeightAlerts = document.getElementById('liveWeightAlerts');
     elLiveExceptionAlerts = document.getElementById('liveExceptionAlerts');
     elLiveAlertsOnly = document.getElementById('liveAlertsOnly');
+    elLiveAutoZoom = document.getElementById('liveAutoZoom');
     elLiveAlerts = document.getElementById('liveAlerts');
     elLiveStatus = document.getElementById('liveStatus');
     ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
@@ -3487,6 +3799,10 @@ geotab.addin.heatmap = function () {
       elSpeedingRules.disabled = !enabled;
       elIdlingRules.disabled = !enabled;
       elShowExceptionHeatMap.disabled = !enabled;
+      ['otherSection', 'speedingSection', 'idlingSection'].forEach(function (id) {
+        var section = document.getElementById(id);
+        if (section) section.classList.toggle('is-inactive', !enabled);
+      });
       ruleDropdown.rebuild();
       speedingRuleDropdown.rebuild();
       idlingRuleDropdown.rebuild();
@@ -3518,6 +3834,45 @@ geotab.addin.heatmap = function () {
       if (element) element.addEventListener('change', refreshWeightPresentation);
     });
     setWeightStatus('Cargo weight is compared with the axle scale register: over the GML payload is an overload, over the GVM payload is critical. Vehicles missing from the register use the fallback limit.');
+    if (elCacheBaseUrl) {
+      var storedCacheUrl = null;
+      try {
+        storedCacheUrl = window.localStorage.getItem(CACHE_URL_STORAGE_KEY);
+      } catch (error) {
+        storedCacheUrl = null;
+      }
+      if (storedCacheUrl) elCacheBaseUrl.value = storedCacheUrl;
+      elCacheBaseUrl.addEventListener('change', function () {
+        cacheIndex = null;
+        cacheMonths = {};
+        cacheScripts = {};
+        try {
+          window.localStorage.setItem(CACHE_URL_STORAGE_KEY, cacheBaseUrl());
+        } catch (error) {
+          // Private browsing can refuse storage; the address still applies now.
+        }
+        if (cacheModeSelected()) describeCache();
+      });
+    }
+    var describeCache = function describeCache() {
+      var section = document.getElementById('dataSourceSection');
+      if (section) section.classList.toggle('is-cache-active', cacheModeSelected());
+      if (!cacheModeSelected()) {
+        setCacheStatus('Reading MyGeotab directly. Switch to the local cache for faster historical searches.');
+        return;
+      }
+      setCacheStatus('Checking the local cache\u2026');
+      loadCacheIndex().then(function () {
+        setCacheStatus(cacheCoverageText() + '. History reads the cache; weight history and the live monitor still read MyGeotab.');
+      })['catch'](function (error) {
+        setCacheStatus('Cache unavailable: ' + (error && error.message ? error.message : 'unknown error') + '. Check the address and that the local viewer is running.', true);
+      });
+    };
+    ['dataSourceApi', 'dataSourceCache'].forEach(function (id) {
+      var radio = document.getElementById(id);
+      if (radio) radio.addEventListener('change', describeCache);
+    });
+    describeCache();
     if (elLiveMonitor) elLiveMonitor.addEventListener('change', applyLiveMonitor);
     if (elLiveInterval) elLiveInterval.addEventListener('change', applyLiveMonitor);
     [elLiveSpeedThreshold, elLiveWeightAlerts, elLiveExceptionAlerts].forEach(function (element) {
@@ -3526,6 +3881,11 @@ geotab.addin.heatmap = function () {
       });
     });
     if (elLiveAlertsOnly) elLiveAlertsOnly.addEventListener('change', renderLiveVehicles);
+    if (elLiveAlerts) elLiveAlerts.addEventListener('click', function (event) {
+      var row = event.target && event.target.closest ? event.target.closest('.live-alert') : null;
+      var deviceId = row && row.getAttribute('data-device');
+      if (deviceId) focusLiveVehicle(deviceId);
+    });
     document.addEventListener('visibilitychange', applyLiveMonitor);
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
     if (elShowSchoolZones) elShowSchoolZones.addEventListener('change', syncSchoolZoneVisibility);
