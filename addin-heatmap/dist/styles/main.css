@@ -670,6 +670,17 @@ select.checkmateFormEditField {
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
+
+    /* The application's dark theme would otherwise print as a black page
+       around the map and behind the tables. */
+    background: #ffffff !important;
+    color: #17324d !important;
+  }
+
+  .cssGrid,
+  .cssGrid > div:last-child,
+  .map-column {
+    background: #ffffff !important;
   }
 
   #disclaimer,
@@ -695,7 +706,7 @@ select.checkmateFormEditField {
   .cssGrid {
     display: block !important;
     width: 100% !important;
-    height: 160mm !important;
+    height: var(--print-map-box-height, 160mm) !important;
     margin: 3mm 0 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
@@ -725,10 +736,14 @@ select.checkmateFormEditField {
     height: 100% !important;
   }
 
+  /* Printed at the exact pixel size it has on screen, then scaled to fit the
+     page: any other size has no tiles loaded for it, so the map prints blank. */
   #heatmap-map {
-    width: 100% !important;
-    height: 100% !important;
+    width: var(--print-map-width, 100%) !important;
+    height: var(--print-map-height, 100%) !important;
     min-height: 0 !important;
+    transform: scale(var(--print-map-scale, 1));
+    transform-origin: top left;
     break-inside: avoid;
     page-break-inside: avoid;
     box-sizing: border-box;
@@ -741,11 +756,22 @@ select.checkmateFormEditField {
     -webkit-print-color-adjust: exact !important;
   }
 
+  /* MyGeotab's own page styles otherwise leave the report dark text on a dark
+     background, so the report forces its own colours. */
+  #printReportTable,
+  #printReportHeader,
+  #printReportTable *,
+  #printReportHeader * {
+    background: #ffffff !important;
+    color: #17324d !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
   #printReportTable {
     display: block !important;
     break-before: page;
     page-break-before: always;
-    color: #17324d;
   }
 
   #printReportTable h2 {
@@ -771,8 +797,8 @@ select.checkmateFormEditField {
     vertical-align: top;
   }
 
-  .print-table thead th {
-    background: #e9f0f6;
+  #printReportTable .print-table thead th {
+    background: #e9f0f6 !important;
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
   }

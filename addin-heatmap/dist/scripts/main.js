@@ -40,8 +40,23 @@ geotab.addin.heatmap = function () {
   var elMapEventTotal;
   var selectedVehicleCount;
   var myGeotabGetResultsLimit = 50000;
+  // One multicall per this many requests: a month of fleet exceptions needs one
+  // LogRecord request per event, which a single multicall cannot carry.
+  var multiCallChunkSize = 250;
+  // Locating more events than this takes longer than anyone waits, so the range
+  // is reported as too wide instead of stalling the browser.
+  var maxLocatedEvents = 6000;
+  var maxVehicleRuleCombinations = 600;
+  // MyGeotab admits 1000 API calls per minute per user and answers an
+  // OverLimitException after that, so requests are paced under the quota.
+  var apiCallsPerMinuteBudget = 850;
+  var apiCallTimestamps = [];
+  // Events closer together than this share one GPS request.
+  var GPS_WINDOW_MERGE_MS = 30 * 60 * 1000;
+  var GPS_WINDOWS_PER_VEHICLE = 24;
   var startTime;
   var printPreviousMetricDetails = null;
+  var printingReport = false;
   var allVehicles = [];
   var availableGroups = [];
   var groupById = {};
@@ -111,6 +126,8 @@ geotab.addin.heatmap = function () {
   // the same model as the standalone idling dashboard.
   var TOP_IDLING_PER_VEHICLE = 5;
   var PRINT_TABLE_ROW_LIMIT = 750;
+  // Landscape A4 less the 8mm print margins, at 96dpi.
+  var PRINT_PAGE_WIDTH_PX = 1062;
   var IDLE_DEFAULT_FUEL_BURN = 3;
   var IDLE_DEFAULT_FUEL_PRICE = 1.9;
   var elIdleMinMinutes;
@@ -178,6 +195,11 @@ geotab.addin.heatmap = function () {
   var liveFocusedAlerts = {};
   var liveMarkersById = {};
   var LIVE_FOCUS_ZOOM = 14;
+  var lastMapScreenSize = null;
+  // Past OpenStreetMap's last rendered zoom (19) so stacked events can be
+  // separated; automatic fits stop earlier, at FIT_MAX_ZOOM.
+  var MAX_MAP_ZOOM = 21;
+  var FIT_MAX_ZOOM = 18;
   var elLiveMonitor;
   var elLiveInterval;
   var elLiveSpeedThreshold;
@@ -407,8 +429,10 @@ geotab.addin.heatmap = function () {
     document.getElementById('printReportFilters').textContent = subject + ' | ' + selectedVehicles.length + ' vehicle' + (selectedVehicles.length === 1 ? '' : 's') + ' | ' + fromText + ' to ' + toText + ' | Generated ' + new Date().toLocaleString();
     document.getElementById('printReportSummary').textContent = formatNumber(pointTotal) + (weightModeActive() ? ' mapped weight events' : exceptionMode ? ' mapped exceptions' : ' GPS points');
     buildPrintReportTable(exceptionMode);
+    printingReport = true;
     printPreviousMetricDetails = metricDetailsVisible;
     if (exceptionMode && metricMapData.length) metricDetailsVisible = true;
+    pinPrintMapToScreenSize();
     map.invalidateSize({
       animate: false,
       pan: false
@@ -417,7 +441,47 @@ geotab.addin.heatmap = function () {
     renderMetricMarkers();
     updateMapEventTotal();
   }
+  /**
+   * Prints the map at exactly its on-screen pixel size, scaled down to fit the
+   * page. Resizing it for print instead would leave the tiles for the new size
+   * unrequested, so the map prints as an empty background.
+   */
+  function pinPrintMapToScreenSize() {
+    var element = document.getElementById('heatmap-map');
+    if (!element) return;
+    var width = element.offsetWidth;
+    var height = element.offsetHeight;
+
+    // The print stylesheet can already have collapsed the map by the time this
+    // runs, so fall back to the last size it had on screen.
+    if (height < 200 && lastMapScreenSize) {
+      width = lastMapScreenSize.width;
+      height = lastMapScreenSize.height;
+    }
+    if (!width || !height) return;
+    // Landscape A4 less the 8mm page margins, at 96dpi.
+    var scale = Math.min(1, PRINT_PAGE_WIDTH_PX / width);
+    var style = document.documentElement.style;
+    style.setProperty('--print-map-width', width + 'px');
+    style.setProperty('--print-map-height', height + 'px');
+    style.setProperty('--print-map-scale', String(scale));
+    style.setProperty('--print-map-box-height', Math.round(height * scale) + 'px');
+  }
+  /**
+   * Keeps the map's on-screen size, so printing can reuse it after the print
+   * stylesheet has changed the layout.
+   */
+  function rememberMapScreenSize() {
+    if (printingReport) return;
+    var element = document.getElementById('heatmap-map');
+    if (!element || element.offsetHeight < 200) return;
+    lastMapScreenSize = {
+      width: element.offsetWidth,
+      height: element.offsetHeight
+    };
+  }
   function restoreAfterPrint() {
+    printingReport = false;
     if (printPreviousMetricDetails !== null) {
       metricDetailsVisible = printPreviousMetricDetails;
       printPreviousMetricDetails = null;
@@ -1314,7 +1378,7 @@ geotab.addin.heatmap = function () {
       heatMapLayer.setLatLngs(coordinates);
       map.fitBounds(coordinates.map(function (point) {
         return new L.LatLng(point.lat, point.lon);
-      }));
+      }), { maxZoom: FIT_MAX_ZOOM });
       updateMapEventTotal();
       messageHandler('Displaying ' + formatNumber(coordinates.length) + ' cached heat cells from ' + formatNumber(records) + ' ' + (exceptionModeActive() ? 'exception events' : 'log records') + ' across ' + formatNumber(days) + ' vehicle days. [' + getElapsedTimeSeconds() + ' sec]');
       errorHandler('Note: the cache stores day and grid cell totals, so event details, measures, speed bands, ring-fencing and the per-event print table need the MyGeotab API data source.');
@@ -2084,9 +2148,18 @@ geotab.addin.heatmap = function () {
   function apiMultiCallPromise(calls) {
     if (!calls.length) return Promise.resolve([]);
     return new Promise(function (resolve, reject) {
-      api.multiCall(calls, function (results) {
-        return resolve(results || []);
-      }, reject);
+      var send = function send() {
+        var wait = apiQuotaDelayMs(calls.length);
+        if (wait > 0) {
+          setTimeout(send, wait);
+          return;
+        }
+        recordApiCalls(calls.length);
+        api.multiCall(calls, function (results) {
+          return resolve(results || []);
+        }, reject);
+      };
+      send();
     });
   }
   function runApiCallsInBatches(calls) {
@@ -2327,6 +2400,170 @@ geotab.addin.heatmap = function () {
   }
 
   /**
+   * The windows to fetch GPS for one vehicle in. Nearby events share a window,
+   * and the widest gaps are merged away until the vehicle needs no more than
+   * GPS_WINDOWS_PER_VEHICLE requests, which keeps a wide date range inside
+   * MyGeotab's calls-per-minute quota.
+   * @param {Array} events - One vehicle's ExceptionEvents.
+   */
+  function gpsFetchWindows(events) {
+    var windows = (events || []).map(function (event) {
+      var from = new Date(event.activeFrom).getTime();
+      var to = new Date(event.activeTo || event.activeFrom).getTime();
+      return {
+        from: from,
+        to: Math.max(from, Number.isFinite(to) ? to : from)
+      };
+    }).filter(function (window) {
+      return Number.isFinite(window.from);
+    }).sort(function (a, b) {
+      return a.from - b.from;
+    });
+    var merged = [];
+    windows.forEach(function (window) {
+      var previous = merged[merged.length - 1];
+      if (previous && window.from <= previous.to + GPS_WINDOW_MERGE_MS) {
+        previous.to = Math.max(previous.to, window.to);
+      } else {
+        merged.push({
+          from: window.from,
+          to: window.to
+        });
+      }
+    });
+    while (merged.length > GPS_WINDOWS_PER_VEHICLE) {
+      var narrowest = 0;
+      for (var index = 1; index < merged.length - 1; index++) {
+        if (merged[index + 1].from - merged[index].to < merged[narrowest + 1].from - merged[narrowest].to) {
+          narrowest = index;
+        }
+      }
+      merged[narrowest].to = merged[narrowest + 1].to;
+      merged.splice(narrowest + 1, 1);
+    }
+    return merged;
+  }
+
+  /**
+   * The records that fall inside one event's own window, from its vehicle's
+   * pooled and time-sorted records.
+   * @param {Array} records - The vehicle's LogRecords, sorted by dateTime.
+   * @param {object} event - The ExceptionEvent being located.
+   */
+  function recordsInEventWindow(records, event) {
+    var from = new Date(event.activeFrom).getTime();
+    var to = new Date(event.activeTo || event.activeFrom).getTime();
+    if (!Number.isFinite(to) || to < from) to = from;
+    var inside = [];
+    for (var index = 0; index < records.length; index++) {
+      var time = new Date(records[index].dateTime).getTime();
+      if (time > to) break;
+      if (time >= from) inside.push(records[index]);
+    }
+    return inside;
+  }
+
+  /**
+   * At most limit items, taken a slice at a time from each group so every group
+   * is represented rather than the first groups filling the whole allowance.
+   * @param {Array} groups - Arrays of items to draw from.
+   * @param {number} limit - Most items to return.
+   */
+  function takeAcrossGroups(groups, limit) {
+    var taken = [];
+    var slice = Math.max(1, Math.floor(limit / Math.max(1, groups.length)));
+    var offsets = groups.map(function () {
+      return 0;
+    });
+    var exhausted = false;
+    while (taken.length < limit && !exhausted) {
+      exhausted = true;
+      for (var index = 0; index < groups.length && taken.length < limit; index++) {
+        var group = groups[index];
+        var end = Math.min(group.length, offsets[index] + slice, offsets[index] + limit - taken.length);
+        if (end > offsets[index]) {
+          taken = taken.concat(group.slice(offsets[index], end));
+          offsets[index] = end;
+          exhausted = false;
+        }
+      }
+    }
+    return taken;
+  }
+
+  /**
+   * A MyGeotab API error as something a driver manager can act on.
+   * @param {*} error - The error the API reported.
+   */
+  function readableApiError(error) {
+    var text = String(error && error.message || error || 'Unknown error');
+    if (text.indexOf('OverLimit') > -1 || text.indexOf('quota') > -1) {
+      return 'MyGeotab is rate limiting this database (' + text + '). Wait a minute, then search a shorter date range or fewer vehicles.';
+    }
+    return text;
+  }
+  function recordApiCalls(count) {
+    var now = Date.now();
+    for (var index = 0; index < count; index++) {
+      apiCallTimestamps.push(now);
+    }
+  }
+
+  /**
+   * How long to wait before issuing the next batch without exceeding the
+   * calls-per-minute quota. Returns 0 when the batch can go out now.
+   * @param {number} count - Calls in the next batch.
+   */
+  function apiQuotaDelayMs(count) {
+    var cutoff = Date.now() - 60000;
+    while (apiCallTimestamps.length && apiCallTimestamps[0] < cutoff) {
+      apiCallTimestamps.shift();
+    }
+    if (apiCallTimestamps.length + count <= apiCallsPerMinuteBudget) return 0;
+    var overBy = apiCallTimestamps.length + count - apiCallsPerMinuteBudget;
+    var oldest = apiCallTimestamps[Math.min(overBy - 1, apiCallTimestamps.length - 1)];
+    return Math.max(250, oldest + 60000 - Date.now());
+  }
+  /**
+   * Runs a large request list as paced multicalls, reporting progress on the
+   * centre bar, and hands back every result in the original order.
+   * @param {Array} calls - The full list of API calls.
+   * @param {string} label - Caption shown above the progress bar.
+   * @param {Function} onDone - Called with the combined results.
+   * @param {Function} onError - Called with the first error.
+   */
+  function multiCallChunked(calls, label, onDone, onError) {
+    var results = [];
+    var index = 0;
+    if (!calls.length) {
+      onDone(results);
+      return;
+    }
+    var runNext = function runNext() {
+      if (index >= calls.length) {
+        onDone(results);
+        return;
+      }
+      var batch = calls.slice(index, index + multiCallChunkSize);
+      var wait = apiQuotaDelayMs(batch.length);
+      if (wait > 0) {
+        showProgress(label + ' ' + formatNumber(index) + ' of ' + formatNumber(calls.length) + ' \u2014 waiting for the API quota\u2026');
+        setTimeout(runNext, wait);
+        return;
+      }
+      showProgress(label + ' ' + formatNumber(index) + ' of ' + formatNumber(calls.length) + '\u2026');
+      recordApiCalls(batch.length);
+      api.multiCall(batch, function (batchResults) {
+        results = results.concat(batchResults);
+        index += batch.length;
+        // Yields to the browser so the bar repaints between batches.
+        setTimeout(runNext, 0);
+      }, onError);
+    };
+    runNext();
+  }
+
+  /**
    * Toggle loading spinner
    * @param {boolean} show - [true] to display the spinner, otherwise [false].
    */
@@ -2481,7 +2718,7 @@ geotab.addin.heatmap = function () {
     }
 
     // Execute multicall.
-    api.multiCall(calls, function (results) {
+    multiCallChunked(calls, 'Loading GPS history', function (results) {
       if (resultsEmpty(results)) {
         errorHandler('No data to display');
         toggleLoading(false);
@@ -2521,7 +2758,7 @@ geotab.addin.heatmap = function () {
         }
         bounds = coordinates.map(function (point) { return new L.LatLng(point.lat, point.lon); });
         setHeatMapPoints(coordinates);
-        map.fitBounds(bounds);
+        map.fitBounds(bounds, { maxZoom: FIT_MAX_ZOOM });
         heatMapLayer.setLatLngs(coordinates);
         updateMapEventTotal();
         messageHandler("Displaying ".concat(formatNumber(logRecordCount), " combined log records for the\n        ").concat(formatNumber(selectedVehicleCount), " selected vehicles. [").concat(getElapsedTimeSeconds(), " sec]"));
@@ -2533,8 +2770,7 @@ geotab.addin.heatmap = function () {
       }
       toggleLoading(false);
     }, function (errorString) {
-      // eslint-disable-next-line no-alert
-      alert(errorString);
+      errorHandler(readableApiError(errorString));
       toggleLoading(false);
     });
   };
@@ -2559,8 +2795,8 @@ geotab.addin.heatmap = function () {
       errorHandler('Select at least one vehicle and one exception rule.');
       return;
     }
-    if (deviceIds.length * selectedRules.length > 100) {
-      errorHandler('Select fewer vehicles or rules. A maximum of 100 vehicle/rule combinations is supported.');
+    if (deviceIds.length * selectedRules.length > maxVehicleRuleCombinations) {
+      errorHandler('Select fewer vehicles or rules. A maximum of ' + formatNumber(maxVehicleRuleCombinations) + ' vehicle/rule combinations is supported.');
       return;
     }
     toggleLoading(true);
@@ -2590,21 +2826,14 @@ geotab.addin.heatmap = function () {
 
     // Execute multicall to get ExceptionEvents for the seletced rule during
     // the specified date/time range for each selected device.
-    api.multiCall(calls, function (results) {
-      if (resultsEmpty(results)) {
-        errorHandler('No data to display');
-        toggleLoading(false);
-        return;
-      }
-
-      // Build array of calls to get LogRecords associated with the devices
-      // associated with the returned ExceptionEvents during the timeframes
-      // of the ExceptionEvents.
+    multiCallChunked(calls, 'Loading exceptions', function (results) {
+      var eventTotals = selectedRules.map(function () {
+        return 0;
+      });
       var exceededResultsLimitCountForExceptionEvents = 0;
-      var calls = [];
-      var eventInfos = [];
+      var eventGroups = [];
       for (var _i5 = 0, len = results.length; _i5 < len; _i5++) {
-        var exceptionEvents = results[_i5];
+        var exceptionEvents = results[_i5] || [];
         var ruleIndex = _i5 % selectedRules.length;
         var deviceIndex = Math.floor(_i5 / selectedRules.length);
         var vehicleName = deviceIds[deviceIndex];
@@ -2614,29 +2843,69 @@ geotab.addin.heatmap = function () {
             break;
           }
         }
+        eventTotals[ruleIndex] += exceptionEvents.length;
+        var group = [];
         for (var _j = 0; _j < exceptionEvents.length; _j++) {
-          eventInfos.push({
+          group.push({
             event: exceptionEvents[_j],
             rule: selectedRules[ruleIndex],
             color: colorForVehicleId(deviceIds[deviceIndex]),
             vehicleName: vehicleName
           });
+        }
+        if (group.length) eventGroups.push(group);
+        if (exceptionEvents.length >= myGeotabGetResultsLimit) {
+          exceededResultsLimitCountForExceptionEvents++;
+        }
+      }
+
+      // Name the rules that returned nothing, so an empty result is never just
+      // "No data to display" when another rule did have events.
+      var emptyRuleNames = selectedRules.filter(function (rule, index) {
+        return !eventTotals[index];
+      }).map(function (rule) {
+        return rule.name;
+      });
+      var foundEvents = eventGroups.reduce(function (sum, group) {
+        return sum + group.length;
+      }, 0);
+      if (!foundEvents) {
+        errorHandler('No exceptions in this date range for ' + (emptyRuleNames.length === selectedRules.length ? 'the selected rule(s): ' + emptyRuleNames.join(', ') : emptyRuleNames.join(', ')) + '.');
+        toggleLoading(false);
+        return;
+      }
+      // Taken round-robin across the vehicle/rule pairs, so a range too wide to
+      // map in full still shows every vehicle rather than only the first few.
+      var eventInfos = takeAcrossGroups(eventGroups, maxLocatedEvents);
+      var truncatedEvents = foundEvents - eventInfos.length;
+
+      // GPS is fetched in merged per-vehicle windows rather than one request per
+      // event: a month of fleet idling is thousands of events, which exceeds
+      // MyGeotab's calls-per-minute quota and returns nothing at all.
+      var eventsByDevice = {};
+      eventInfos.forEach(function (info) {
+        var deviceId = info.event.device.id;
+        if (!eventsByDevice[deviceId]) eventsByDevice[deviceId] = [];
+        eventsByDevice[deviceId].push(info.event);
+      });
+      var calls = [];
+      var windowDevices = [];
+      Object.keys(eventsByDevice).forEach(function (deviceId) {
+        gpsFetchWindows(eventsByDevice[deviceId]).forEach(function (window) {
+          windowDevices.push(deviceId);
           calls.push(['Get', {
             typeName: 'LogRecord',
             resultsLimit: myGeotabGetResultsLimit,
             search: {
               deviceSearch: {
-                id: exceptionEvents[_j].device.id
+                id: deviceId
               },
-              fromDate: exceptionEvents[_j].activeFrom,
-              toDate: exceptionEvents[_j].activeTo
+              fromDate: new Date(window.from).toISOString(),
+              toDate: new Date(window.to).toISOString()
             }
           }]);
-        }
-        if (exceptionEvents.length >= myGeotabGetResultsLimit) {
-          exceededResultsLimitCountForExceptionEvents++;
-        }
-      }
+        });
+      });
       var roadDevices = [];
       deviceIds.forEach(function (deviceId) {
         roadDevices.push(deviceId);
@@ -2649,15 +2918,12 @@ geotab.addin.heatmap = function () {
           postedRoadSpeedOptions: 'None'
         }]);
       });
-
-      // Execute multicall to get LogRecords associated with the devices
-      // associated with the returned ExceptionEvents during the timeframes
-      // of the ExceptionEvents.
-      api.multiCall(calls, function (results) {
-        var logResults = results.slice(0, eventInfos.length);
-        var roadResults = results.slice(eventInfos.length);
+      var windowCallCount = windowDevices.length;
+      multiCallChunked(calls, 'Locating exceptions', function (results) {
+        var logResults = results.slice(0, windowCallCount);
+        var roadResults = results.slice(windowCallCount);
         if (resultsEmpty(logResults)) {
-          errorHandler('No data to display');
+          errorHandler('Found ' + formatNumber(eventInfos.length) + ' exception(s), but no GPS records to place them on the map.');
           toggleLoading(false);
           return;
         }
@@ -2671,21 +2937,33 @@ geotab.addin.heatmap = function () {
             return new Date(a.date) - new Date(b.date);
           });
         });
+
+        // Pool each vehicle's records once, then hand every event the records
+        // inside its own window.
+        var logsByDevice = {};
+        logResults.forEach(function (rows, index) {
+          var deviceId = windowDevices[index];
+          if (!logsByDevice[deviceId]) logsByDevice[deviceId] = [];
+          logsByDevice[deviceId] = logsByDevice[deviceId].concat(rows || []);
+          if ((rows || []).length >= myGeotabGetResultsLimit) {
+            exceededResultsLimitCountForLogRecords++;
+          }
+        });
+        Object.keys(logsByDevice).forEach(function (deviceId) {
+          logsByDevice[deviceId].sort(function (a, b) {
+            return new Date(a.dateTime) - new Date(b.dateTime);
+          });
+          logsByDevice[deviceId].forEach(function (record) {
+            if (record.latitude !== 0 || record.longitude !== 0) logRecordCount++;
+          });
+        });
         var metrics = [];
         // Build one metric and one heat point per mapped ExceptionEvent.
         // LogRecords are used only to locate the event and calculate its metric;
         // they must not independently increase exception heat intensity.
-        for (var _i6 = 0, _len2 = logResults.length; _i6 < _len2; _i6++) {
-          var logRecords = logResults[_i6];
-          for (var _j2 = 0; _j2 < logRecords.length; _j2++) {
-            if (logRecords[_j2].latitude !== 0 || logRecords[_j2].longitude !== 0) {
-              logRecordCount++;
-            }
-          }
-          if (logRecords.length >= myGeotabGetResultsLimit) {
-            exceededResultsLimitCountForLogRecords++;
-          }
+        for (var _i6 = 0, _len2 = eventInfos.length; _i6 < _len2; _i6++) {
           var eventInfo = eventInfos[_i6];
+          var logRecords = recordsInEventWindow(logsByDevice[eventInfo.event.device.id] || [], eventInfo.event);
           var metric = buildEventMetric(eventInfo, logRecords, roadByDevice[eventInfo.event.device.id] || []);
           if (metric) {
             metrics.push(metric);
@@ -2709,11 +2987,17 @@ geotab.addin.heatmap = function () {
           }
           bounds = coordinates.map(function (point) { return new L.LatLng(point.lat, point.lon); });
           setHeatMapPoints(coordinates);
-          map.fitBounds(bounds);
+          map.fitBounds(bounds, { maxZoom: FIT_MAX_ZOOM });
           heatMapLayer.setLatLngs(coordinates);
           displayMetricMarkers(metrics);
           updateMapEventTotal();
           messageHandler("Displaying event-based heat from ".concat(formatNumber(metrics.length), " mapped exceptions\n          (").concat(formatNumber(logRecordCount), " supporting GPS records) across ").concat(formatNumber(selectedRules.length), " selected rules for the\n          ").concat(formatNumber(selectedVehicleCount), " selected vehicles. [").concat(getElapsedTimeSeconds(), " sec]"));
+
+          if (truncatedEvents > 0) {
+            errorHandler('Note: this range holds ' + formatNumber(eventInfos.length + truncatedEvents) + ' exceptions; ' + formatNumber(eventInfos.length) + ' of them were mapped, spread evenly across the selected vehicles and rules. Narrow the date range, the vehicles or the rules to map them all.');
+          } else if (emptyRuleNames.length) {
+            errorHandler('Note: no events in this range for ' + emptyRuleNames.join(', ') + '.');
+          }
 
           // Build the error message if result limit(s) exceeded.
           if (exceededResultsLimitCountForExceptionEvents > 0 || exceededResultsLimitCountForLogRecords > 0) {
@@ -2735,13 +3019,11 @@ geotab.addin.heatmap = function () {
           errorHandler('No data to display');
         }
       }, function (errorString) {
-        // eslint-disable-next-line no-alert
-        alert(errorString);
+        errorHandler(readableApiError(errorString));
         toggleLoading(false);
       });
     }, function (errorString) {
-      // eslint-disable-next-line no-alert
-      alert(errorString);
+      errorHandler(readableApiError(errorString));
       toggleLoading(false);
     });
   };
@@ -2768,7 +3050,7 @@ geotab.addin.heatmap = function () {
     var bounds = filteredPoints.map(function (point) {
       return new L.LatLng(point.lat, point.lon);
     });
-    map.fitBounds(bounds);
+    map.fitBounds(bounds, { maxZoom: FIT_MAX_ZOOM });
     setHeatMapPoints(filteredPoints);
     heatMapLayer.setLatLngs(filteredPoints);
     updateMapEventTotal();
@@ -3239,7 +3521,7 @@ geotab.addin.heatmap = function () {
           }
         }]);
       });
-      api.multiCall(calls, function (results) {
+      multiCallChunked(calls, 'Loading cargo weight', function (results) {
         var statusCount = vehicles.length * windows.length;
         var metrics = [];
         var readingTotal = 0;
@@ -3290,7 +3572,7 @@ geotab.addin.heatmap = function () {
         setHeatMapPoints(coordinates);
         map.fitBounds(coordinates.map(function (point) {
           return new L.LatLng(point.lat, point.lon);
-        }));
+        }), { maxZoom: FIT_MAX_ZOOM });
         heatMapLayer.setLatLngs(coordinates);
         displayMetricMarkers(metrics);
         updateMapEventTotal();
@@ -3668,12 +3950,20 @@ geotab.addin.heatmap = function () {
     // setup the map
     map = new L.Map('heatmap-map', {
       center: new L.LatLng(coords.latitude, coords.longitude),
-      zoom: 13
+      zoom: 13,
+      maxZoom: MAX_MAP_ZOOM
     });
+
+    // OpenStreetMap only renders tiles to zoom 19; past that its last tiles are
+    // scaled up so events stacked on one yard or street can still be separated.
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      subdomains: ['a', 'b', 'c']
+      subdomains: ['a', 'b', 'c'],
+      maxZoom: MAX_MAP_ZOOM,
+      maxNativeZoom: 19
     }).addTo(map);
+    rememberMapScreenSize();
+    map.on('resize', rememberMapScreenSize);
 
     // find reused elements
     elExceptionTypes = document.getElementById('exceptionTypes');
