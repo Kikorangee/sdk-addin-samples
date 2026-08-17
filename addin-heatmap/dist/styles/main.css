@@ -668,7 +668,7 @@ select.checkmateFormEditField {
    box size, so the tiles the printer needs are the tiles the browser loads. */
 html.print-preparing #heatmap-map {
   width: var(--print-map-width, 1040px) !important;
-  height: var(--print-map-height, 560px) !important;
+  height: var(--print-map-height, 630px) !important;
   /* The map is a growing flex item on screen, which would win over height. */
   flex: 0 0 auto !important;
   min-height: 0 !important;
@@ -761,7 +761,7 @@ html.print-preparing #heatmap-map {
      tiles were never requested, so it came out blank. */
   #heatmap-map {
     width: var(--print-map-width, 1040px) !important;
-    height: var(--print-map-height, 560px) !important;
+    height: var(--print-map-height, 630px) !important;
     min-height: 0 !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -780,11 +780,13 @@ html.print-preparing #heatmap-map {
 
   /* On paper the legends are a caption, not a control: they are shrunk so the
      map keeps the page, and the parts that only make sense on screen go. */
-  /* Smaller too, since the legend below it is measured from its bottom edge. */
+  /* Smaller too, since the legend below it is measured from its bottom edge.
+     Sizes are multiplied by --print-ui-scale because MyGeotab's iframe is
+     scaled down to fit the paper, taking these overlays with it. */
   #map-brand-logo {
     top: 6px !important;
     right: 6px !important;
-    width: 26mm !important;
+    width: calc(26mm * var(--print-ui-scale, 1)) !important;
     padding: 3px 4px !important;
     border-radius: 4px !important;
     box-shadow: none !important;
@@ -794,12 +796,13 @@ html.print-preparing #heatmap-map {
   .school-zone-legend,
   .vehicle-legend {
     min-width: 0 !important;
-    max-width: 42mm !important;
+    max-width: calc(42mm * var(--print-ui-scale, 1)) !important;
     margin-top: 4px !important;
-    padding: 4px 6px !important;
+    padding: calc(4px * var(--print-ui-scale, 1))
+      calc(6px * var(--print-ui-scale, 1)) !important;
     border-radius: 4px !important;
     box-shadow: none !important;
-    font-size: 5.5pt !important;
+    font-size: calc(5.5pt * var(--print-ui-scale, 1)) !important;
     line-height: 1.25 !important;
   }
 
@@ -807,7 +810,7 @@ html.print-preparing #heatmap-map {
   .school-zone-legend strong,
   .vehicle-legend > strong {
     margin-bottom: 2px !important;
-    font-size: 6pt !important;
+    font-size: calc(6pt * var(--print-ui-scale, 1)) !important;
   }
 
   .metric-legend span,
@@ -815,21 +818,21 @@ html.print-preparing #heatmap-map {
   .vehicle-legend label {
     margin-top: 1px !important;
     padding: 0 !important;
-    font-size: 5.5pt !important;
+    font-size: calc(5.5pt * var(--print-ui-scale, 1)) !important;
     line-height: 1.25 !important;
   }
 
   .metric-legend span b {
-    font-size: 5.5pt !important;
+    font-size: calc(5.5pt * var(--print-ui-scale, 1)) !important;
   }
 
   .metric-legend i,
   .metric-legend .speed-band-row i,
   .metric-legend-rule i,
   .vehicle-legend i {
-    width: 6px !important;
-    height: 6px !important;
-    margin-right: 3px !important;
+    width: calc(6px * var(--print-ui-scale, 1)) !important;
+    height: calc(6px * var(--print-ui-scale, 1)) !important;
+    margin-right: calc(3px * var(--print-ui-scale, 1)) !important;
   }
 
   .metric-legend small,
@@ -840,13 +843,13 @@ html.print-preparing #heatmap-map {
   }
 
   .vehicle-legend {
-    max-height: 50mm !important;
+    max-height: calc(50mm * var(--print-ui-scale, 1)) !important;
     overflow: hidden !important;
   }
 
   /* Clears the shrunken brand logo it sits under. */
   .metric-legend {
-    margin-top: 14mm !important;
+    margin-top: calc(14mm * var(--print-ui-scale, 1)) !important;
   }
 
   /* MyGeotab's own page styles otherwise leave the report dark text on a dark

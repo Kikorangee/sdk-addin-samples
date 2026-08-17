@@ -198,11 +198,16 @@ geotab.addin.heatmap = function () {
   var liveMarkersById = {};
   var LIVE_FOCUS_ZOOM = 14;
   // The printable area of landscape A4 at 8mm margins is 281mm x 194mm, which
-  // at 96dpi is 1062px x 733px; the header takes 25mm of the height. Tiles are
-  // only requested for the size the map is actually given, so the printed box
-  // is sized here rather than scaled in CSS.
+  // at 96dpi is 1062px x 733px. MyGeotab runs the add-in in an iframe that is
+  // usually wider than that, and the browser scales the whole frame down to
+  // fit the paper, so a fixed pixel box prints far smaller than the page. The
+  // printed box is therefore measured from the frame's own width and only used
+  // as a fallback below.
+  var PRINT_PAGE_WIDTH_PX = 1062;
+  // 194mm of page height less the 25mm report header and the map border.
+  var PRINT_PAGE_MAP_HEIGHT_PX = 630;
   var PRINT_MAP_WIDTH_PX = 1056;
-  var PRINT_MAP_HEIGHT_PX = 638;
+  var PRINT_MAP_HEIGHT_PX = 630;
   var PRINT_TILE_WAIT_MS = 6000;
   // Past OpenStreetMap's last rendered zoom (19) so stacked events can be
   // separated; automatic fits stop earlier, at FIT_MAX_ZOOM.
@@ -497,13 +502,51 @@ geotab.addin.heatmap = function () {
    */
   function sizeMapForPrint() {
     var style = document.documentElement.style;
-    style.setProperty('--print-map-width', PRINT_MAP_WIDTH_PX + 'px');
-    style.setProperty('--print-map-height', PRINT_MAP_HEIGHT_PX + 'px');
+    var box = printMapBox();
+    style.setProperty('--print-map-width', box.width + 'px');
+    style.setProperty('--print-map-height', box.height + 'px');
+    // Absolute print units shrink with the frame as well, so the overlays are
+    // enlarged by the same factor to land at the size they are written for.
+    style.setProperty('--print-ui-scale',
+      String(Math.max(1, box.width / PRINT_PAGE_WIDTH_PX)));
     document.documentElement.classList.add('print-preparing');
     map.invalidateSize({
       animate: false,
       pan: false
     });
+  }
+
+  /**
+   * The pixel box the map should occupy so that, once the frame is scaled to
+   * the paper, the map fills the width and the height left under the header.
+   * @returns {{width: number, height: number}} The printed map size.
+   */
+  function printMapBox() {
+    var framed = false;
+    try {
+      framed = window.self !== window.top;
+    } catch (error) {
+      // A cross-origin parent still means the page is framed.
+      framed = true;
+    }
+    // Printed on its own the page is laid out at the paper width, so the fixed
+    // box is the right one; framed, the paper width belongs to the parent.
+    if (!framed) return {
+      width: PRINT_MAP_WIDTH_PX,
+      height: PRINT_MAP_HEIGHT_PX
+    };
+    var width = Math.round(document.documentElement.clientWidth ||
+      window.innerWidth || PRINT_MAP_WIDTH_PX);
+    if (width < 640) return {
+      width: PRINT_MAP_WIDTH_PX,
+      height: PRINT_MAP_HEIGHT_PX
+    };
+    // The frame is scaled by PRINT_PAGE_WIDTH_PX / width, so the box keeps the
+    // page's proportions to land on the page height exactly.
+    return {
+      width: width,
+      height: Math.round(width * PRINT_PAGE_MAP_HEIGHT_PX / PRINT_PAGE_WIDTH_PX)
+    };
   }
 
   /**
