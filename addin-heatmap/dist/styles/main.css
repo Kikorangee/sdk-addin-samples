@@ -778,6 +778,77 @@ html.print-preparing #heatmap-map {
     -webkit-print-color-adjust: exact !important;
   }
 
+  /* On paper the legends are a caption, not a control: they are shrunk so the
+     map keeps the page, and the parts that only make sense on screen go. */
+  /* Smaller too, since the legend below it is measured from its bottom edge. */
+  #map-brand-logo {
+    top: 6px !important;
+    right: 6px !important;
+    width: 26mm !important;
+    padding: 3px 4px !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+  }
+
+  .metric-legend,
+  .school-zone-legend,
+  .vehicle-legend {
+    min-width: 0 !important;
+    max-width: 42mm !important;
+    margin-top: 4px !important;
+    padding: 4px 6px !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    font-size: 5.5pt !important;
+    line-height: 1.25 !important;
+  }
+
+  .metric-legend strong,
+  .school-zone-legend strong,
+  .vehicle-legend > strong {
+    margin-bottom: 2px !important;
+    font-size: 6pt !important;
+  }
+
+  .metric-legend span,
+  .school-zone-legend span,
+  .vehicle-legend label {
+    margin-top: 1px !important;
+    padding: 0 !important;
+    font-size: 5.5pt !important;
+    line-height: 1.25 !important;
+  }
+
+  .metric-legend span b {
+    font-size: 5.5pt !important;
+  }
+
+  .metric-legend i,
+  .metric-legend .speed-band-row i,
+  .metric-legend-rule i,
+  .vehicle-legend i {
+    width: 6px !important;
+    height: 6px !important;
+    margin-right: 3px !important;
+  }
+
+  .metric-legend small,
+  .metric-detail-toggle,
+  .vehicle-legend small,
+  .vehicle-legend input {
+    display: none !important;
+  }
+
+  .vehicle-legend {
+    max-height: 50mm !important;
+    overflow: hidden !important;
+  }
+
+  /* Clears the shrunken brand logo it sits under. */
+  .metric-legend {
+    margin-top: 14mm !important;
+  }
+
   /* MyGeotab's own page styles otherwise leave the report dark text on a dark
      background, so the report forces its own colours. */
   #printReportTable,

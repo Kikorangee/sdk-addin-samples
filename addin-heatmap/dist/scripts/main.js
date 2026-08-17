@@ -197,9 +197,12 @@ geotab.addin.heatmap = function () {
   var liveFocusedAlerts = {};
   var liveMarkersById = {};
   var LIVE_FOCUS_ZOOM = 14;
-  // Landscape A4 less the 8mm page margins and the map border, at 96dpi.
-  var PRINT_MAP_WIDTH_PX = 1040;
-  var PRINT_MAP_HEIGHT_PX = 560;
+  // The printable area of landscape A4 at 8mm margins is 281mm x 194mm, which
+  // at 96dpi is 1062px x 733px; the header takes 25mm of the height. Tiles are
+  // only requested for the size the map is actually given, so the printed box
+  // is sized here rather than scaled in CSS.
+  var PRINT_MAP_WIDTH_PX = 1056;
+  var PRINT_MAP_HEIGHT_PX = 638;
   var PRINT_TILE_WAIT_MS = 6000;
   // Past OpenStreetMap's last rendered zoom (19) so stacked events can be
   // separated; automatic fits stop earlier, at FIT_MAX_ZOOM.
