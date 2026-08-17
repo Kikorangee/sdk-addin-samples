@@ -522,27 +522,14 @@ geotab.addin.heatmap = function () {
    * @returns {{width: number, height: number}} The printed map size.
    */
   function printMapBox() {
-    var framed = false;
-    try {
-      framed = window.self !== window.top;
-    } catch (error) {
-      // A cross-origin parent still means the page is framed.
-      framed = true;
-    }
-    // Printed on its own the page is laid out at the paper width, so the fixed
-    // box is the right one; framed, the paper width belongs to the parent.
-    if (!framed) return {
-      width: PRINT_MAP_WIDTH_PX,
-      height: PRINT_MAP_HEIGHT_PX
-    };
-    var width = Math.round(document.documentElement.clientWidth ||
-      window.innerWidth || PRINT_MAP_WIDTH_PX);
-    if (width < 640) return {
-      width: PRINT_MAP_WIDTH_PX,
-      height: PRINT_MAP_HEIGHT_PX
-    };
-    // The frame is scaled by PRINT_PAGE_WIDTH_PX / width, so the box keeps the
-    // page's proportions to land on the page height exactly.
+    // How wide the printed layout is depends on how MyGeotab shrinks the page
+    // to the paper, which cannot be read before the dialog opens. The printed
+    // map itself is therefore laid out as the full width of the page (see the
+    // print stylesheet); tiles are only loaded for the box measured here, so it
+    // takes the wider of the page and the current layout and keeps the page's
+    // proportions, leaving the map fully covered either way.
+    var width = Math.max(PRINT_MAP_WIDTH_PX,
+      Math.round(document.documentElement.clientWidth || window.innerWidth || 0));
     return {
       width: width,
       height: Math.round(width * PRINT_PAGE_MAP_HEIGHT_PX / PRINT_PAGE_WIDTH_PX)

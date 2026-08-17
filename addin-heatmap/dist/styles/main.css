@@ -756,12 +756,14 @@ html.print-preparing #heatmap-map {
     height: auto !important;
   }
 
-  /* The Print button resizes the map to exactly this box and waits for its
-     tiles before printing; scaling it here instead would print a map whose
-     tiles were never requested, so it came out blank. */
+  /* The map takes the whole width of the printed page, whatever width MyGeotab
+     hands the printer, and the aspect ratio leaves room for the header above
+     it. The Print button pre-loads tiles for at least this box, since scaling a
+     map whose tiles were never requested printed blank. */
   #heatmap-map {
-    width: var(--print-map-width, 1040px) !important;
-    height: var(--print-map-height, 630px) !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1062 / 630;
     min-height: 0 !important;
     max-width: 100% !important;
     margin: 0 !important;
