@@ -654,6 +654,16 @@ select.checkmateFormEditField {
   display: none;
 }
 
+/* While the Print button is preparing the report the map is held at the printed
+   box size, so the tiles the printer needs are the tiles the browser loads. */
+html.print-preparing #heatmap-map {
+  width: var(--print-map-width, 1040px) !important;
+  height: var(--print-map-height, 560px) !important;
+  /* The map is a growing flex item on screen, which would win over height. */
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+}
+
 @media print {
   @page {
     size: landscape;
@@ -706,10 +716,10 @@ select.checkmateFormEditField {
   .cssGrid {
     display: block !important;
     width: 100% !important;
-    height: var(--print-map-box-height, 160mm) !important;
+    height: auto !important;
     margin: 3mm 0 0 !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   #printReportHeader h1 {
@@ -733,17 +743,19 @@ select.checkmateFormEditField {
     width: 100% !important;
     max-width: none !important;
     flex: 0 0 100% !important;
-    height: 100% !important;
+    height: auto !important;
   }
 
-  /* Printed at the exact pixel size it has on screen, then scaled to fit the
-     page: any other size has no tiles loaded for it, so the map prints blank. */
+  /* The Print button resizes the map to exactly this box and waits for its
+     tiles before printing; scaling it here instead would print a map whose
+     tiles were never requested, so it came out blank. */
   #heatmap-map {
-    width: var(--print-map-width, 100%) !important;
-    height: var(--print-map-height, 100%) !important;
+    width: var(--print-map-width, 1040px) !important;
+    height: var(--print-map-height, 560px) !important;
     min-height: 0 !important;
-    transform: scale(var(--print-map-scale, 1));
-    transform-origin: top left;
+    max-width: 100% !important;
+    margin: 0 !important;
+    position: relative !important;
     break-inside: avoid;
     page-break-inside: avoid;
     box-sizing: border-box;

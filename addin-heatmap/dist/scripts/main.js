@@ -126,8 +126,6 @@ geotab.addin.heatmap = function () {
   // the same model as the standalone idling dashboard.
   var TOP_IDLING_PER_VEHICLE = 5;
   var PRINT_TABLE_ROW_LIMIT = 750;
-  // Landscape A4 less the 8mm print margins, at 96dpi.
-  var PRINT_PAGE_WIDTH_PX = 1062;
   var IDLE_DEFAULT_FUEL_BURN = 3;
   var IDLE_DEFAULT_FUEL_PRICE = 1.9;
   var elIdleMinMinutes;
@@ -195,7 +193,10 @@ geotab.addin.heatmap = function () {
   var liveFocusedAlerts = {};
   var liveMarkersById = {};
   var LIVE_FOCUS_ZOOM = 14;
-  var lastMapScreenSize = null;
+  // Landscape A4 less the 8mm page margins and the map border, at 96dpi.
+  var PRINT_MAP_WIDTH_PX = 1040;
+  var PRINT_MAP_HEIGHT_PX = 560;
+  var PRINT_TILE_WAIT_MS = 6000;
   // Past OpenStreetMap's last rendered zoom (19) so stacked events can be
   // separated; automatic fits stop earlier, at FIT_MAX_ZOOM.
   var MAX_MAP_ZOOM = 21;
@@ -432,56 +433,73 @@ geotab.addin.heatmap = function () {
     printingReport = true;
     printPreviousMetricDetails = metricDetailsVisible;
     if (exceptionMode && metricMapData.length) metricDetailsVisible = true;
-    pinPrintMapToScreenSize();
-    map.invalidateSize({
-      animate: false,
-      pan: false
-    });
+    sizeMapForPrint();
     redrawHeatMapLayer();
     renderMetricMarkers();
     updateMapEventTotal();
   }
   /**
-   * Prints the map at exactly its on-screen pixel size, scaled down to fit the
-   * page. Resizing it for print instead would leave the tiles for the new size
-   * unrequested, so the map prints as an empty background.
+   * Holds the map at the size it will be printed at, so the browser requests
+   * the tiles the printed page needs.
    */
-  function pinPrintMapToScreenSize() {
-    var element = document.getElementById('heatmap-map');
-    if (!element) return;
-    var width = element.offsetWidth;
-    var height = element.offsetHeight;
-
-    // The print stylesheet can already have collapsed the map by the time this
-    // runs, so fall back to the last size it had on screen.
-    if (height < 200 && lastMapScreenSize) {
-      width = lastMapScreenSize.width;
-      height = lastMapScreenSize.height;
-    }
-    if (!width || !height) return;
-    // Landscape A4 less the 8mm page margins, at 96dpi.
-    var scale = Math.min(1, PRINT_PAGE_WIDTH_PX / width);
+  function sizeMapForPrint() {
     var style = document.documentElement.style;
-    style.setProperty('--print-map-width', width + 'px');
-    style.setProperty('--print-map-height', height + 'px');
-    style.setProperty('--print-map-scale', String(scale));
-    style.setProperty('--print-map-box-height', Math.round(height * scale) + 'px');
+    style.setProperty('--print-map-width', PRINT_MAP_WIDTH_PX + 'px');
+    style.setProperty('--print-map-height', PRINT_MAP_HEIGHT_PX + 'px');
+    document.documentElement.classList.add('print-preparing');
+    map.invalidateSize({
+      animate: false,
+      pan: false
+    });
   }
+
   /**
-   * Keeps the map's on-screen size, so printing can reuse it after the print
-   * stylesheet has changed the layout.
+   * Calls done once every tile of the resized map has loaded, or after
+   * PRINT_TILE_WAIT_MS if some tile never arrives.
+   * @param {Function} done - Called when the map is ready to print.
    */
-  function rememberMapScreenSize() {
-    if (printingReport) return;
-    var element = document.getElementById('heatmap-map');
-    if (!element || element.offsetHeight < 200) return;
-    lastMapScreenSize = {
-      width: element.offsetWidth,
-      height: element.offsetHeight
+  function whenPrintMapTilesReady(done) {
+    var started = Date.now();
+    var finished = false;
+    var finish = function finish() {
+      if (finished) return;
+      finished = true;
+      done();
     };
+    var poll = function poll() {
+      if (finished) return;
+      var pending = document.querySelectorAll('#heatmap-map .leaflet-tile:not(.leaflet-tile-loaded)').length;
+      if (!pending || Date.now() - started > PRINT_TILE_WAIT_MS) {
+        finish();
+        return;
+      }
+      setTimeout(poll, 150);
+    };
+
+    // One frame for the resize to lay out and the new tiles to be requested.
+    setTimeout(poll, 250);
+  }
+
+  /**
+   * Builds the report, waits for the resized map to finish loading and only
+   * then opens the print dialog.
+   */
+  function printReport() {
+    if (printingReport) return;
+    preparePrintReport();
+    showProgress('Preparing the report for printing…');
+    whenPrintMapTilesReady(function () {
+      hideProgress();
+      window.print();
+
+      // Safari and some embedded viewers never fire afterprint.
+      setTimeout(restoreAfterPrint, 1500);
+    });
   }
   function restoreAfterPrint() {
+    if (!printingReport) return;
     printingReport = false;
+    document.documentElement.classList.remove('print-preparing');
     if (printPreviousMetricDetails !== null) {
       metricDetailsVisible = printPreviousMetricDetails;
       printPreviousMetricDetails = null;
@@ -3962,8 +3980,6 @@ geotab.addin.heatmap = function () {
       maxZoom: MAX_MAP_ZOOM,
       maxNativeZoom: 19
     }).addTo(map);
-    rememberMapScreenSize();
-    map.on('resize', rememberMapScreenSize);
 
     // find reused elements
     elExceptionTypes = document.getElementById('exceptionTypes');
@@ -4023,6 +4039,10 @@ geotab.addin.heatmap = function () {
     elLoading = document.getElementById('loading');
     elLoadingLabel = document.getElementById('loading-label');
     elMapEventTotal = document.getElementById('map-event-total');
+    var printButton = document.getElementById('printPdf');
+    if (printButton) printButton.addEventListener('click', printReport);
+
+    // Ctrl+P still prints, without the chance to wait for tiles.
     window.addEventListener('beforeprint', preparePrintReport);
     window.addEventListener('afterprint', restoreAfterPrint);
     window.addEventListener('resize', fitToViewport);
