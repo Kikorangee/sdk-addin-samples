@@ -213,6 +213,45 @@ select.checkmateFormEditField {
 
 .speed-zone-category input { margin: 0; accent-color: var(--zone-color, #8492a6); }
 
+/* Risk Management speed bands, in the exception legend and event popups. */
+.speed-band-flag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #e6eef8;
+    color: #14395f;
+    font-weight: 700;
+}
+
+.metric-legend .speed-band-heading { display: block; margin-top: 6px; }
+.metric-legend .speed-band-row { display: flex; align-items: center; gap: 6px; }
+.metric-legend .speed-band-row i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; background: var(--zone-color, #8492a6); }
+.metric-legend .speed-band-row.is-muted { opacity: 0.45; text-decoration: line-through; }
+
+/* Each vehicle's five worst speeding events. */
+.top-speeding-flag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #fff3cd;
+    color: #7a4b00;
+    font-weight: 700;
+}
+
+.metric-legend .top-speeding-row { display: block; margin-top: 6px; }
+.metric-legend .top-speeding-row.is-only { font-weight: 700; }
+
+.event-metric-marker.is-top-speeding span { box-shadow: 0 0 0 2px #ffd166; }
+.event-metric-marker .top-speeding-rank {
+    margin-left: 4px;
+    padding: 0 3px;
+    border-radius: 2px;
+    background: #ffd166;
+    color: #4a2c00;
+}
+
 .school-zone-legend > strong { display: flex; align-items: center; gap: 6px; }
 .school-zone-legend > strong i { width: 12px; height: 12px; flex: 0 0 auto; border: 1px solid #f2a900; background: rgba(242, 169, 0, 0.35); }
 .school-zone-legend span { display: flex; align-items: center; gap: 6px; margin-top: 4px; }

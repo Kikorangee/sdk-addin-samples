@@ -10,9 +10,9 @@
 
   <link rel="stylesheet" href="styles/vendor.css">
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.37">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.38">
   <script src="scripts/vendor.js"></script>
-  <script src="scripts/main.js?v=1.0.37"></script>
+  <script src="scripts/main.js?v=1.0.38"></script>
 </head>
 
 <body>
@@ -103,6 +103,14 @@
           </label>
           <small class="control-help" id="schoolZoneStatus"></small>
 
+          <label for="speedBands">Speed band(s):</label>
+          <div class="speed-zone-categories" id="speedBands"></div>
+          <small class="control-help" id="speedBandStatus"></small>
+          <label class="exception-heat-toggle" for="topSpeedingOnly">
+            <input type="checkbox" id="topSpeedingOnly">
+            Only the top 5 speeding events per vehicle
+          </label>
+
           <label for="groupTypes">Group type(s):</label>
           <select id="groupTypes" class="checkmateFormEditField multi-select-native" multiple></select>
 
@@ -129,6 +137,8 @@
               <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
               <li>In exception history, untick <i>Show heatmap layer</i> to keep exception data and event details without heat colouring.</li>
               <li>Tick <i>Show speed limit zones</i> and pick the posted limits (10&ndash;110) to overlay the NZTA speed limit zones for the current map view; events inside a zone show that zone's limit on their sign and are counted in the zone legend.</li>
+              <li>Untick a <i>Speed band</i> to hide the events in it. The bands are your database's Risk Management speed bands (Administration &rarr; System Settings), and each event is banded by its peak vehicle speed.</li>
+              <li>Tick <i>Only the top 5 speeding events per vehicle</i> to ring-fence each vehicle's five fastest speeding events. Those events always carry a ranked badge (#1 is that vehicle's fastest) and a highlighted ring, whether or not the filter is on.</li>
               <li>Tick <i>School zones only</i> to keep just the school zones, and <i>Only events inside the selected zones</i> to search speeding and every other exception within those zones alone.</li>
               <li>Specify a date/time range and click <i>Show Results</i>.</li>
               <li>Use <i>Refresh data</i> after changing the MyGeotab Groups Filter or when fleet data changes.</li>

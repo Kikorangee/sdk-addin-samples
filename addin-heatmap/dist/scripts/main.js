@@ -89,6 +89,19 @@ geotab.addin.heatmap = function () {
   var mainLoadActive = false;
   var zoneLoadActive = false;
 
+  // MyGeotab's Risk Management speed bands. SystemSettings.speedingTrigger holds
+  // the three absolute speeds the database is configured with and
+  // speedingGraceDuration the grace period, so events are banded exactly as the
+  // Risk Management report bands them instead of against invented thresholds.
+  var SPEED_BAND_COLORS = ['#43a047', '#f2a900', '#fb8c00', '#d81b60'];
+  var speedBandTriggers = [];
+  var speedBandGraceSeconds = null;
+  var selectedSpeedBands = [];
+  var elSpeedBands;
+  var elSpeedBandStatus;
+  var elTopSpeedingOnly;
+  var TOP_SPEEDING_PER_VEHICLE = 5;
+
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
   // five minutes. Points are aggregated into ~50 m / one-minute cells.
@@ -170,7 +183,7 @@ geotab.addin.heatmap = function () {
     var totalCount = 0;
     var countablePoints = exceptionMode ? metricMapData : heatMapPoints;
     countablePoints.forEach(function (point) {
-      if (exceptionMode && !metricPassesZoneFilter(point)) return;
+      if (exceptionMode && !metricPassesFilters(point)) return;
       var weight = exceptionMode ? 1 : Number(point.value) || 1;
       totalCount += weight;
       if (!bounds || bounds.contains(new L.LatLng(point.lat, point.lon))) {
@@ -478,6 +491,7 @@ geotab.addin.heatmap = function () {
       speedLimit: speedLimit,
       vehicleSpeed: Number.isFinite(Number(chosen.speed)) ? Math.round(Number(chosen.speed)) : peakSpeed,
       ruleName: name,
+      vehicleName: eventInfo.vehicleName,
       color: eventInfo.color,
       popup: '<strong>' + escapeHtml(name) + '</strong><br>' + escapeHtml(eventInfo.vehicleName) + '<br>' + escapeHtml(detail) + '<br>' + escapeHtml(secondary) + '<br>' + escapeHtml(new Date(event.activeFrom).toLocaleString())
     };
@@ -610,6 +624,185 @@ geotab.addin.heatmap = function () {
       // types are reported as inside the zone without being called speeding.
       metric.schoolZoneSpeeding = !!(zone && limit != null && metric.kind === 'speed' && Number.isFinite(metric.vehicleSpeed) && metric.vehicleSpeed > limit);
     });
+  }
+  /**
+   * Parses a MyGeotab duration ("00:00:16") into seconds.
+   * @param {string} value - The duration to parse.
+   */
+  function durationSeconds(value) {
+    var parts = String(value == null ? '' : value).split(':');
+    if (parts.length !== 3) return null;
+    var seconds = Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
+    return Number.isFinite(seconds) ? seconds : null;
+  }
+
+  /**
+   * One entry per Risk Management band: the three configured triggers produce
+   * four bands, the first being everything below the slowest trigger.
+   */
+  function speedBands() {
+    if (!speedBandTriggers.length) return [];
+    return speedBandTriggers.map(function (trigger, index) {
+      var next = speedBandTriggers[index + 1];
+      return {
+        index: index + 1,
+        chip: String(trigger),
+        label: next ? trigger + '\u2013' + (next - 1) + ' km/h' : trigger + '+ km/h',
+        color: SPEED_BAND_COLORS[Math.min(index + 1, SPEED_BAND_COLORS.length - 1)]
+      };
+    }).concat([{
+      index: 0,
+      chip: '<' + speedBandTriggers[0],
+      label: 'Under ' + speedBandTriggers[0] + ' km/h',
+      color: SPEED_BAND_COLORS[0]
+    }]).sort(function (a, b) {
+      return a.index - b.index;
+    });
+  }
+  function speedBandByIndex(index) {
+    return speedBands().filter(function (band) {
+      return band.index === index;
+    })[0] || null;
+  }
+
+  /**
+   * The band a speed falls in: 0 below the first trigger, then one band per
+   * trigger reached.
+   * @param {number} speed - Vehicle speed in km/h.
+   */
+  function speedBandIndex(speed) {
+    if (!speedBandTriggers.length || !Number.isFinite(speed)) return null;
+    var index = 0;
+    speedBandTriggers.forEach(function (trigger, position) {
+      if (speed >= trigger) index = position + 1;
+    });
+    return index;
+  }
+
+  /**
+   * Stores the database's Risk Management bands and shows them in the picker.
+   * @param {object|Array} settings - The SystemSettings result.
+   */
+  function applySpeedBandSettings(settings) {
+    var record = Array.isArray(settings) ? settings[0] : settings;
+    speedBandTriggers = ((record && record.speedingTrigger) || []).map(Number).filter(function (value) {
+      return Number.isFinite(value) && value > 0;
+    }).sort(function (a, b) {
+      return a - b;
+    });
+    speedBandGraceSeconds = durationSeconds(record && record.speedingGraceDuration);
+    selectedSpeedBands = speedBands().map(function (band) {
+      return band.index;
+    });
+    buildSpeedBandPicker();
+    annotateMetricsWithSpeedBands();
+    renderMetricMarkers();
+    updateMapEventTotal();
+  }
+  function setSpeedBandStatus(text) {
+    if (elSpeedBandStatus) elSpeedBandStatus.textContent = text || '';
+  }
+
+  /**
+   * Renders one chip per Risk Management band; unticking a band removes its
+   * events from the map, the legend and the totals.
+   */
+  function buildSpeedBandPicker() {
+    if (!elSpeedBands) return;
+    elSpeedBands.innerHTML = '';
+    var bands = speedBands();
+    if (!bands.length) {
+      setSpeedBandStatus('Speed bands unavailable \u2014 MyGeotab did not return the Risk Management settings for this database.');
+      return;
+    }
+    bands.forEach(function (band) {
+      var label = document.createElement('label');
+      label.className = 'speed-zone-category';
+      label.style.setProperty('--zone-color', band.color);
+      label.title = band.label;
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = String(band.index);
+      input.checked = selectedSpeedBands.indexOf(band.index) !== -1;
+      input.addEventListener('change', function () {
+        selectedSpeedBands = Array.prototype.slice.call(elSpeedBands.querySelectorAll('input:checked')).map(function (checked) {
+          return Number(checked.value);
+        });
+        displayMetricLegend(metricMapData);
+        renderMetricMarkers();
+        updateMapEventTotal();
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(band.chip));
+      elSpeedBands.appendChild(label);
+    });
+    setSpeedBandStatus('Risk Management bands from your database: ' + speedBandTriggers.join(' / ') + ' km/h' + (speedBandGraceSeconds != null ? ', ' + speedBandGraceSeconds + 's grace' : '') + '. Untick a band to hide its events.');
+  }
+
+  /**
+   * Tags every mapped event with the Risk Management band its speed falls in.
+   */
+  function annotateMetricsWithSpeedBands() {
+    metricMapData.forEach(function (metric) {
+      metric.speedBand = speedBandIndex(metric.vehicleSpeed);
+    });
+  }
+
+  /**
+   * Ranks each vehicle's fastest speeding events so the worst few can be
+   * singled out: rank 1 is that vehicle's highest speed, and events outside its
+   * top five carry no rank.
+   */
+  function annotateMetricsWithTopSpeeding() {
+    var byVehicle = {};
+    metricMapData.forEach(function (metric) {
+      metric.topSpeedingRank = null;
+      if (metric.kind !== 'speed' || !Number.isFinite(metric.vehicleSpeed)) return;
+      var key = metric.vehicleName || '';
+      if (!byVehicle[key]) byVehicle[key] = [];
+      byVehicle[key].push(metric);
+    });
+    Object.keys(byVehicle).forEach(function (key) {
+      byVehicle[key].sort(function (a, b) {
+        return b.vehicleSpeed - a.vehicleSpeed;
+      }).slice(0, TOP_SPEEDING_PER_VEHICLE).forEach(function (metric, position) {
+        metric.topSpeedingRank = position + 1;
+      });
+    });
+  }
+  function topSpeedingFilterActive() {
+    return !!(elTopSpeedingOnly && elTopSpeedingOnly.checked);
+  }
+  function metricPassesTopSpeedingFilter(metric) {
+    if (!topSpeedingFilterActive()) return true;
+    return !!metric.topSpeedingRank;
+  }
+  function describeSpeedBand(metric) {
+    var band = metric.speedBand == null ? null : speedBandByIndex(metric.speedBand);
+    if (!band) return '';
+    return (band.index === 0 ? 'Below band 1' : 'Speed band ' + band.index) + ' (' + band.label + ')';
+  }
+
+  /**
+   * Only filters once a band has actually been unticked, so a database without
+   * Risk Management settings behaves as before.
+   */
+  function speedBandFilterActive() {
+    var bands = speedBands();
+    return !!(bands.length && selectedSpeedBands.length && selectedSpeedBands.length < bands.length);
+  }
+  function metricPassesBandFilter(metric) {
+    if (!speedBandFilterActive()) return true;
+    if (metric.speedBand == null) return false;
+    return selectedSpeedBands.indexOf(metric.speedBand) !== -1;
+  }
+
+  /**
+   * Every filter an event has to pass to be drawn and counted.
+   * @param {object} metric - A mapped exception event.
+   */
+  function metricPassesFilters(metric) {
+    return metricPassesZoneFilter(metric) && metricPassesBandFilter(metric) && metricPassesTopSpeedingFilter(metric);
   }
   function schoolZoneSpeedingCount() {
     return metricMapData.filter(function (metric) {
@@ -880,7 +1073,7 @@ geotab.addin.heatmap = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
         return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
+      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -892,6 +1085,39 @@ geotab.addin.heatmap = function () {
     };
     metricLegendControl.addTo(map);
   }
+  /**
+   * Band counts for the legend, using the same band filter as the map so the
+   * numbers match what is drawn.
+   */
+  function speedBandLegendRows() {
+    var bands = speedBands();
+    if (!bands.length) return '';
+    var rows = bands.map(function (band) {
+      var count = metricMapData.filter(function (metric) {
+        return metric.speedBand === band.index && metricPassesZoneFilter(metric);
+      }).length;
+      var muted = selectedSpeedBands.indexOf(band.index) === -1;
+      return '<span class="speed-band-row' + (muted ? ' is-muted' : '') + '"><i style="--zone-color:' + band.color + '"></i>' + escapeHtml(band.label) + ' <b>' + formatNumber(count) + '</b></span>';
+    }).join('');
+    return '<strong class="speed-band-heading">Speed bands</strong>' + rows;
+  }
+
+  /**
+   * How many of each vehicle's five worst speeding events are on the map, so
+   * the ringed markers can be read against a count.
+   */
+  function topSpeedingLegendRow() {
+    var ranked = metricMapData.filter(function (metric) {
+      return metric.topSpeedingRank && metricPassesZoneFilter(metric) && metricPassesBandFilter(metric);
+    });
+    if (!ranked.length) return '';
+    var vehicles = {};
+    ranked.forEach(function (metric) {
+      vehicles[metric.vehicleName || ''] = true;
+    });
+    return '<span class="top-speeding-row' + (topSpeedingFilterActive() ? ' is-only' : '') + '">Top ' + TOP_SPEEDING_PER_VEHICLE + ' speeding per vehicle <b>' + formatNumber(ranked.length) + '</b> across ' + formatNumber(Object.keys(vehicles).length) + ' vehicles</span>';
+  }
+
   // A roundel of the posted limit sits above each mapped speeding event. Events
   // cluster on the same stretch of road, so a sign is skipped when an identical
   // limit is already drawn within 46px of it.
@@ -933,15 +1159,17 @@ geotab.addin.heatmap = function () {
     var mapSize = map.getSize();
     metricMapData.forEach(function (metric) {
       if (!map.getBounds().contains(new L.LatLng(metric.lat, metric.lon))) return;
-      if (!metricPassesZoneFilter(metric)) return;
+      if (!metricPassesFilters(metric)) return;
       addSpeedLimitSign(metric, acceptedSignPoints);
       var zoneWord = metric.schoolZone && metric.schoolZone.isSchool ? 'school zone' : 'zone';
-      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '');
-      var popupHtml = metric.popup + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
+      var bandText = describeSpeedBand(metric);
+      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '');
+      var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
+      var bandRing = metric.speedBand > 0 ? speedBandByIndex(metric.speedBand) : null;
       var dot = L.circleMarker([metric.lat, metric.lon], {
-        radius: 4,
-        color: '#ffffff',
-        weight: 1,
+        radius: metric.topSpeedingRank ? 7 : bandRing ? 5 : 4,
+        color: bandRing ? bandRing.color : metric.topSpeedingRank ? '#ffd166' : '#ffffff',
+        weight: metric.topSpeedingRank ? 3 : bandRing ? 2 : 1,
         fillColor: metric.color,
         fillOpacity: 0.95
       });
@@ -976,8 +1204,8 @@ geotab.addin.heatmap = function () {
       }
       var marker = L.marker(labelLatLng, {
         icon: L.divIcon({
-          className: 'event-metric-marker event-metric-' + metric.kind,
-          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + '</span>',
+          className: 'event-metric-marker event-metric-' + metric.kind + (metric.topSpeedingRank ? ' is-top-speeding' : ''),
+          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + (metric.topSpeedingRank ? '<b class="top-speeding-rank">#' + metric.topSpeedingRank + '</b>' : '') + '</span>',
           iconSize: [70, 30],
           iconAnchor: [8, 15]
         })
@@ -994,6 +1222,8 @@ geotab.addin.heatmap = function () {
     metricMapData = metrics || [];
     metricDetailsVisible = false;
     annotateMetricsWithSchoolZones();
+    annotateMetricsWithSpeedBands();
+    annotateMetricsWithTopSpeeding();
     displayMetricLegend(metrics);
     displaySchoolZoneLegend();
     renderMetricMarkers();
@@ -2128,7 +2358,11 @@ geotab.addin.heatmap = function () {
     elSpeedZoneCategories = document.getElementById('speedZoneCategories');
     elSchoolZonesOnly = document.getElementById('schoolZonesOnly');
     elEventsInZonesOnly = document.getElementById('eventsInZonesOnly');
+    elSpeedBands = document.getElementById('speedBands');
+    elSpeedBandStatus = document.getElementById('speedBandStatus');
+    elTopSpeedingOnly = document.getElementById('topSpeedingOnly');
     buildSpeedZoneCategoryPicker();
+    buildSpeedBandPicker();
     elGroupTypes = document.getElementById('groupTypes');
     elVehicleGroups = document.getElementById('vehicleGroups');
     elVehicles = document.getElementById('vehicles');
@@ -2230,6 +2464,11 @@ geotab.addin.heatmap = function () {
       syncSchoolZoneVisibility();
     });
     if (elEventsInZonesOnly) elEventsInZonesOnly.addEventListener('change', function () {
+      renderMetricMarkers();
+      updateMapEventTotal();
+    });
+    if (elTopSpeedingOnly) elTopSpeedingOnly.addEventListener('change', function () {
+      displayMetricLegend(metricMapData);
       renderMetricMarkers();
       updateMapEventTotal();
     });
@@ -2351,12 +2590,15 @@ geotab.addin.heatmap = function () {
       }], ['Get', {
         typeName: 'Rule',
         resultsLimit: SELECTOR_RESULTS_LIMIT
+      }], ['Get', {
+        typeName: 'SystemSettings'
       }]], function (results) {
         var vehicles = results[0];
         var groups = results[1];
         var zoneTypes = results[2];
         var zones = results[3];
         var rules = results[4];
+        applySpeedBandSettings(results[5]);
         if (!vehicles || !vehicles.length) {
           errorHandler('No vehicles are available for the current group filter.');
         } else {
