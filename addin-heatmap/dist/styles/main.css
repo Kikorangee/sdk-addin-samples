@@ -764,6 +764,10 @@ html.print-preparing #heatmap-map {
     width: 100% !important;
     height: auto !important;
     aspect-ratio: 1062 / 630;
+    /* vh is the printed page box, so this keeps room for the report header on
+       any paper size or margin: without it a taller page box pushed the map,
+       which cannot break, onto a page of its own. */
+    max-height: calc(100vh - 30mm) !important;
     min-height: 0 !important;
     max-width: 100% !important;
     margin: 0 !important;
