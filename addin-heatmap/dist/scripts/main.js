@@ -63,6 +63,10 @@ geotab.addin.heatmap = function () {
   var parentByGroupId = {};
   var availableZoneTypes = [];
   var availableZones = [];
+  var zoneShapeCache = null;
+  var GEOTAB_ZONE_LEGEND_ROWS = 5;
+  var GEOTAB_ZONE_COLOR = '#5c6bc0';
+  var geotabZoneLayer;
   var legendVehicleIds = {};
 
   // Speed limit zones come from the NZTA National Speed Limit Register
@@ -335,16 +339,61 @@ geotab.addin.heatmap = function () {
   }
   function printMetricRow(metric, index) {
     var limit = metric.schoolZoneLimit != null ? metric.schoolZoneLimit : metric.speedLimit;
-    var zone = metric.schoolZone ? describeSchoolZone(metric.schoolZone) : '';
+    var speedZone = metric.schoolZone ? describeSchoolZone(metric.schoolZone) : '';
+    var zone = metricZoneText(metric);
     var rank = metric.topSpeedingRank ? '#' + metric.topSpeedingRank + ' fastest' : metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest' : metric.topWeightRank ? '#' + metric.topWeightRank + ' heaviest' : '';
     // Speed columns are meaningless for an idling event, so they stay blank
     // rather than reporting the speed the vehicle happened to reach nearby.
     var idle = metric.kind === 'idle';
     var weight = metric.kind === 'weight';
-    var cells = [index + 1, metric.vehicleName || '', weight && metric.weightRego ? metric.ruleName + ' (' + metric.weightRego + ')' : metric.ruleName || '', metric.startTime ? new Date(metric.startTime).toLocaleString() : '', formatDuration(metric.durationMs || 0), metric.label || '', !idle && !weight && Number.isFinite(metric.vehicleSpeed) ? metric.vehicleSpeed + ' km/h' : '', !idle && !weight && limit != null ? limit + ' km/h' : '', idle || weight ? '' : describeSpeedBand(metric) || '', idle ? '$' + (metric.idleCost || 0).toFixed(2) : '', weight ? formatTonnes(metric.weightKg) + ' t' : '', weight && metric.weightPct != null ? Math.round(metric.weightPct) + '%' : '', zone, rank];
+    var cells = [index + 1, metric.vehicleName || '', weight && metric.weightRego ? metric.ruleName + ' (' + metric.weightRego + ')' : metric.ruleName || '', metric.startTime ? new Date(metric.startTime).toLocaleString() : '', formatDuration(metric.durationMs || 0), metric.label || '', !idle && !weight && Number.isFinite(metric.vehicleSpeed) ? metric.vehicleSpeed + ' km/h' : '', !idle && !weight && limit != null ? limit + ' km/h' : '', idle || weight ? '' : describeSpeedBand(metric) || '', idle ? '$' + (metric.idleCost || 0).toFixed(2) : '', weight ? formatTonnes(metric.weightKg) + ' t' : '', weight && metric.weightPct != null ? Math.round(metric.weightPct) + '%' : '', zone, speedZone, rank];
     return '<tr>' + cells.map(function (cell) {
       return '<td>' + escapeHtml(String(cell)) + '</td>';
     }).join('') + '</tr>';
+  }
+  /**
+   * Totals the events by the MyGeotab zone they happened in, so the report says
+   * which sites the exceptions belong to. Events inside overlapping zones count
+   * once per zone, so the zone totals can exceed the event count.
+   * @param {Array} metrics - The events being printed.
+   * @returns {string} The zone table, or '' when no event sits in a zone.
+   */
+  function printZoneSummary(metrics) {
+    var byZone = {};
+    var outside = 0;
+    metrics.forEach(function (metric) {
+      var zones = metric.geotabZones || [];
+      if (!zones.length) {
+        outside++;
+        return;
+      }
+      zones.forEach(function (name) {
+        if (!byZone[name]) byZone[name] = {
+          events: 0,
+          vehicles: {},
+          topSpeed: null,
+          idleCost: 0
+        };
+        var summary = byZone[name];
+        summary.events++;
+        summary.vehicles[metric.vehicleName || 'Unknown vehicle'] = true;
+        summary.idleCost += metric.idleCost || 0;
+        if (metric.kind !== 'idle' && Number.isFinite(metric.vehicleSpeed) && (summary.topSpeed == null || metric.vehicleSpeed > summary.topSpeed)) {
+          summary.topSpeed = metric.vehicleSpeed;
+        }
+      });
+    });
+    var names = Object.keys(byZone);
+    if (!names.length) {
+      return '<h2>Results by zone</h2>' + '<p class="print-table-note">' + (zoneShapes().length ? 'None of these events happened inside a MyGeotab zone.' : 'This database has no zones with boundaries, so events cannot be attributed to one.') + '</p>';
+    }
+    var zoneRows = names.sort(function (a, b) {
+      return byZone[b].events - byZone[a].events || a.localeCompare(b);
+    }).map(function (name) {
+      var summary = byZone[name];
+      return '<tr><td>' + escapeHtml(name) + '</td>' + '<td>' + formatNumber(summary.events) + '</td>' + '<td>' + formatNumber(Object.keys(summary.vehicles).length) + '</td>' + '<td>' + (summary.topSpeed == null ? '' : summary.topSpeed + ' km/h') + '</td>' + '<td>' + (summary.idleCost ? '$' + summary.idleCost.toFixed(2) : '') + '</td></tr>';
+    }).join('');
+    return '<h2>Results by zone</h2>' + '<table class="print-table print-summary-table"><thead><tr>' + '<th>Zone</th><th>Events</th><th>Vehicles</th><th>Peak speed</th><th>Idling cost</th>' + '</tr></thead><tbody>' + zoneRows + '</tbody></table>' + '<p class="print-table-note">' + formatNumber(outside) + ' of ' + formatNumber(metrics.length) + ' events were outside every zone. Events inside overlapping zones are counted under each of them.</p>';
   }
   function buildPrintReportTable(exceptionMode) {
     var container = document.getElementById('printReportTable');
@@ -393,7 +442,8 @@ geotab.addin.heatmap = function () {
     }).join('');
     var truncated = metrics.length > PRINT_TABLE_ROW_LIMIT;
     var rows = metrics.slice(0, PRINT_TABLE_ROW_LIMIT).map(printMetricRow).join('');
-    container.innerHTML = '<h2>Results by vehicle</h2>' + '<table class="print-table print-summary-table"><thead><tr>' + '<th>Vehicle</th><th>Events</th><th>Peak speed</th><th>Idling</th><th>Idling cost</th><th>Peak cargo</th><th>Worst % of limit</th>' + '</tr></thead><tbody>' + summaryRows + '</tbody></table>' + '<h2>Events</h2>' + '<table class="print-table"><thead><tr>' + '<th>#</th><th>Vehicle</th><th>Rule</th><th>Start</th><th>Duration</th><th>Measure</th>' + '<th>Vehicle speed</th><th>Limit</th><th>Speed band</th><th>Idling cost</th><th>Cargo</th><th>% of limit</th><th>Zone</th><th>Ring-fence</th>' + '</tr></thead><tbody>' + rows + '</tbody></table>' + (truncated ? '<p class="print-table-note">Showing the first ' + formatNumber(PRINT_TABLE_ROW_LIMIT) + ' of ' + formatNumber(metrics.length) + ' events. Narrow the filters or the date range to print the rest.</p>' : '');
+    var zoneSection = printZoneSummary(metrics);
+    container.innerHTML = '<h2>Results by vehicle</h2>' + '<table class="print-table print-summary-table"><thead><tr>' + '<th>Vehicle</th><th>Events</th><th>Peak speed</th><th>Idling</th><th>Idling cost</th><th>Peak cargo</th><th>Worst % of limit</th>' + '</tr></thead><tbody>' + summaryRows + '</tbody></table>' + zoneSection + '<h2>Events</h2>' + '<table class="print-table"><thead><tr>' + '<th>#</th><th>Vehicle</th><th>Rule</th><th>Start</th><th>Duration</th><th>Measure</th>' + '<th>Vehicle speed</th><th>Limit</th><th>Speed band</th><th>Idling cost</th><th>Cargo</th><th>% of limit</th><th>Zone</th><th>Speed zone</th><th>Ring-fence</th>' + '</tr></thead><tbody>' + rows + '</tbody></table>' + (truncated ? '<p class="print-table-note">Showing the first ' + formatNumber(PRINT_TABLE_ROW_LIMIT) + ' of ' + formatNumber(metrics.length) + ' events. Narrow the filters or the date range to print the rest.</p>' : '');
   }
   // leaflet.heat reads its canvas back with getImageData, which throws while the
   // map pane still has no measurable size (as happens mid print layout).
@@ -531,6 +581,79 @@ geotab.addin.heatmap = function () {
       return Number.isFinite(point.lat) && Number.isFinite(point.lon);
     });
   }
+  /**
+   * The MyGeotab zones as polygons with a bounding box, so thousands of events
+   * can be tested against hundreds of zones without a full polygon scan each.
+   */
+  function zoneShapes() {
+    if (zoneShapeCache) return zoneShapeCache;
+    zoneShapeCache = availableZones.map(function (zone) {
+      var polygon = zoneCoordinates(zone);
+      if (polygon.length < 3) return null;
+      var box = polygon.reduce(function (bounds, point) {
+        return {
+          minLat: Math.min(bounds.minLat, point.lat),
+          maxLat: Math.max(bounds.maxLat, point.lat),
+          minLon: Math.min(bounds.minLon, point.lon),
+          maxLon: Math.max(bounds.maxLon, point.lon)
+        };
+      }, {
+        minLat: Infinity,
+        maxLat: -Infinity,
+        minLon: Infinity,
+        maxLon: -Infinity
+      });
+      return {
+        id: zone.id,
+        name: zone.name,
+        polygon: polygon,
+        box: box
+      };
+    }).filter(Boolean);
+    return zoneShapeCache;
+  }
+
+  /**
+   * Names every MyGeotab zone a position falls inside. Zones overlap, so an
+   * event can belong to a yard and the site that contains it at once.
+   * @param {number} lat - Latitude of the event.
+   * @param {number} lon - Longitude of the event.
+   * @returns {Array} The names of the containing zones.
+   */
+  function zoneNamesAt(lat, lon) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+    var point = {
+      lat: lat,
+      lon: lon
+    };
+    return zoneShapes().filter(function (shape) {
+      var box = shape.box;
+      if (lat < box.minLat || lat > box.maxLat || lon < box.minLon || lon > box.maxLon) return false;
+      return pointInPolygon(point, shape.polygon);
+    }).map(function (shape) {
+      return shape.name;
+    });
+  }
+
+  /**
+   * Tags every mapped event with the MyGeotab zones it sits inside, so the map
+   * and the printed report can name where each event happened.
+   */
+  function annotateMetricsWithGeotabZones() {
+    var hasZones = zoneShapes().length > 0;
+    metricMapData.forEach(function (metric) {
+      metric.geotabZones = hasZones ? zoneNamesAt(metric.lat, metric.lon) : [];
+    });
+  }
+
+  /**
+   * The zones an event sits in, as one line: MyGeotab zones first because they
+   * are the customer's own places, then the posted speed zone.
+   * @param {object} metric - The mapped event.
+   */
+  function metricZoneText(metric) {
+    return (metric.geotabZones || []).join(', ');
+  }
   function pointInPolygon(point, polygon) {
     var inside = false;
     for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -543,12 +666,40 @@ geotab.addin.heatmap = function () {
     }
     return inside;
   }
-  function filterPointsBySelectedZones(points) {
+  /**
+   * The MyGeotab zones the results are restricted to. Naming zones restricts to
+   * those; naming only a zone type restricts to every zone of that type, since
+   * picking "Depot" and leaving the zone list on "All zones" reads as "the depot
+   * zones", not "everywhere".
+   */
+  function filterZones() {
     var zoneIds = selectedValues(elZones);
-    if (!zoneIds.length) return points || [];
-    var polygons = availableZones.filter(function (zone) {
-      return zoneIds.indexOf(zone.id) !== -1;
-    }).map(zoneCoordinates).filter(function (polygon) {
+    if (zoneIds.length) {
+      return availableZones.filter(function (zone) {
+        return zoneIds.indexOf(zone.id) !== -1;
+      });
+    }
+    var typeIds = selectedValues(elZoneTypes);
+    if (!typeIds.length) return [];
+    return availableZones.filter(function (zone) {
+      return (zone.zoneTypes || []).some(function (zoneType) {
+        return typeIds.indexOf(zoneType.id || zoneType) !== -1;
+      });
+    });
+  }
+  /**
+   * How the zone selection narrowed the results, for the status line, so a
+   * zone filter is never applied silently.
+   */
+  function zoneFilterNote() {
+    var zones = filterZones();
+    if (!zones.length) return '';
+    return ' Restricted to the ' + formatNumber(zones.length) + ' zone' + (zones.length === 1 ? '' : 's') + (selectedValues(elZones).length ? ' selected' : ' of the selected zone type') + '.';
+  }
+  function filterPointsBySelectedZones(points) {
+    var zones = filterZones();
+    if (!zones.length) return points || [];
+    var polygons = zones.map(zoneCoordinates).filter(function (polygon) {
       return polygon.length >= 3;
     });
     if (!polygons.length) return [];
@@ -907,6 +1058,7 @@ geotab.addin.heatmap = function () {
       // types are reported as inside the zone without being called speeding.
       metric.schoolZoneSpeeding = !!(zone && limit != null && metric.kind === 'speed' && Number.isFinite(metric.vehicleSpeed) && metric.vehicleSpeed > limit);
     });
+    annotateMetricsWithGeotabZones();
   }
   /**
    * Parses a MyGeotab duration ("00:00:16") into seconds.
@@ -1693,6 +1845,36 @@ geotab.addin.heatmap = function () {
     }).addTo(map);
     if (schoolZoneLayer.bringToBack) schoolZoneLayer.bringToBack();
   }
+  /**
+   * Outlines the MyGeotab zones the results are restricted to, so the zones the
+   * events are being tested against are visible rather than implied.
+   */
+  function renderGeotabZoneLayer() {
+    if (geotabZoneLayer) {
+      map.removeLayer(geotabZoneLayer);
+      geotabZoneLayer = null;
+    }
+    var zones = filterZones();
+    if (!zones.length) return;
+    geotabZoneLayer = L.layerGroup(zones.map(function (zone) {
+      var polygon = zoneCoordinates(zone);
+      if (polygon.length < 3) return null;
+      var shape = L.polygon(polygon.map(function (point) {
+        return [point.lat, point.lon];
+      }), {
+        color: GEOTAB_ZONE_COLOR,
+        weight: 2,
+        opacity: 0.9,
+        fillColor: GEOTAB_ZONE_COLOR,
+        fillOpacity: 0.1
+      });
+      shape.bindTooltip(escapeHtml(zone.name || 'Zone'), {
+        sticky: true
+      });
+      return shape;
+    }).filter(Boolean)).addTo(map);
+    if (geotabZoneLayer.bringToBack) geotabZoneLayer.bringToBack();
+  }
   function displaySchoolZoneLegend() {
     if (schoolZoneLegendControl) {
       map.removeControl(schoolZoneLegendControl);
@@ -1812,6 +1994,7 @@ geotab.addin.heatmap = function () {
   }
   function displayMetricLegend(metrics) {
     if (metricLegendControl) map.removeControl(metricLegendControl);
+    renderGeotabZoneLayer();
     var rules = [];
     var seen = {};
     (metrics || []).forEach(function (metric) {
@@ -1833,7 +2016,7 @@ geotab.addin.heatmap = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>' + (weightModeActive() ? 'Weight legend' : 'Exception legend') + '</strong>' + rules.map(function (rule) {
         return '<span class="metric-legend-rule is-' + rule.category + '" style="--category-color:' + CATEGORY_COLORS[rule.category] + '"><i></i>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + weightLegendRows() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>' + (weightModeActive() ? 'Marker fill is the vehicle colour and the ring shows how the load compares with the axle scale register; heat intensity follows the percentage of the payload limit.' : 'Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.') + '</small>';
+      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + weightLegendRows() + geotabZoneLegendRows(metrics) + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>' + (weightModeActive() ? 'Marker fill is the vehicle colour and the ring shows how the load compares with the axle scale register; heat intensity follows the percentage of the payload limit.' : 'Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.') + '</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -1845,6 +2028,31 @@ geotab.addin.heatmap = function () {
     };
     metricLegendControl.addTo(map);
   }
+  /**
+   * The busiest MyGeotab zones for the mapped events, so the map names where
+   * the exceptions are concentrated rather than only where they are.
+   * @param {Array} metrics - The mapped events.
+   */
+  function geotabZoneLegendRows(metrics) {
+    var counts = {};
+    var inZones = 0;
+    (metrics || []).forEach(function (metric) {
+      var zones = metric.geotabZones || [];
+      if (zones.length) inZones++;
+      zones.forEach(function (name) {
+        counts[name] = (counts[name] || 0) + 1;
+      });
+    });
+    var names = Object.keys(counts);
+    if (!names.length) return '';
+    var rows = names.sort(function (a, b) {
+      return counts[b] - counts[a] || a.localeCompare(b);
+    }).slice(0, GEOTAB_ZONE_LEGEND_ROWS).map(function (name) {
+      return '<span class="speed-band-row"><i style="--zone-color:' + GEOTAB_ZONE_COLOR + '"></i>' + escapeHtml(name) + ' <b>' + formatNumber(counts[name]) + '</b></span>';
+    }).join('');
+    return '<strong class="speed-band-heading">MyGeotab zones</strong>' + rows + (names.length > GEOTAB_ZONE_LEGEND_ROWS ? '<span>and ' + formatNumber(names.length - GEOTAB_ZONE_LEGEND_ROWS) + ' more zones</span>' : '') + '<span><b>' + formatNumber(inZones) + '</b> of ' + formatNumber((metrics || []).length) + ' events inside a zone</span>';
+  }
+
   /**
    * Band counts for the legend, using the same band filter as the map so the
    * numbers match what is drawn.
@@ -1946,9 +2154,9 @@ geotab.addin.heatmap = function () {
       addSpeedLimitSign(metric, acceptedSignPoints);
       var zoneWord = metric.schoolZone && metric.schoolZone.isSchool ? 'school zone' : 'zone';
       var bandText = describeSpeedBand(metric);
-      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.topWeightRank ? ' \u2022 #' + metric.topWeightRank + ' worst load for this vehicle' : '') + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '') + (metric.topIdlingRank ? ' \u2022 #' + metric.topIdlingRank + ' costliest idling for this vehicle' : '');
+      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.topWeightRank ? ' \u2022 #' + metric.topWeightRank + ' worst load for this vehicle' : '') + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '') + (metric.topIdlingRank ? ' \u2022 #' + metric.topIdlingRank + ' costliest idling for this vehicle' : '') + (metricZoneText(metric) ? ' \u2022 ' + metricZoneText(metric) : '');
       var rank = metric.topSpeedingRank || metric.topIdlingRank || metric.topWeightRank;
-      var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (metric.kind === 'idle' ? '<br><span class="idling-flag">' + (metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest idling event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + ' \u2014 ' : '') + Math.round(metric.idleMinutes || 0) + ' min idling \u2022 ' + (metric.idleLitres || 0).toFixed(1) + ' L \u2022 $' + (metric.idleCost || 0).toFixed(2) + ' at ' + idleFuelBurn() + ' L/h and $' + idleFuelPrice().toFixed(2) + '/L</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
+      var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (metric.kind === 'idle' ? '<br><span class="idling-flag">' + (metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest idling event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + ' \u2014 ' : '') + Math.round(metric.idleMinutes || 0) + ' min idling \u2022 ' + (metric.idleLitres || 0).toFixed(1) + ' L \u2022 $' + (metric.idleCost || 0).toFixed(2) + ' at ' + idleFuelBurn() + ' L/h and $' + idleFuelPrice().toFixed(2) + '/L</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metricZoneText(metric) ? '<br><span class="geotab-zone-flag">Zone: ' + escapeHtml(metricZoneText(metric)) + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
       var bandRing = metric.speedBand > 0 && metric.kind !== 'weight' ? speedBandByIndex(metric.speedBand) : null;
       var weightRing = metric.kind === 'weight' ? WEIGHT_STATUS_COLORS[metric.weightStatus] || null : null;
       var dot = L.circleMarker([metric.lat, metric.lon], {
@@ -3009,7 +3217,7 @@ geotab.addin.heatmap = function () {
           heatMapLayer.setLatLngs(coordinates);
           displayMetricMarkers(metrics);
           updateMapEventTotal();
-          messageHandler("Displaying event-based heat from ".concat(formatNumber(metrics.length), " mapped exceptions\n          (").concat(formatNumber(logRecordCount), " supporting GPS records) across ").concat(formatNumber(selectedRules.length), " selected rules for the\n          ").concat(formatNumber(selectedVehicleCount), " selected vehicles. [").concat(getElapsedTimeSeconds(), " sec]"));
+          messageHandler("Displaying event-based heat from ".concat(formatNumber(metrics.length), " mapped exceptions\n          (").concat(formatNumber(logRecordCount), " supporting GPS records) across ").concat(formatNumber(selectedRules.length), " selected rules for the\n          ").concat(formatNumber(selectedVehicleCount), " selected vehicles.").concat(zoneFilterNote(), " [").concat(getElapsedTimeSeconds(), " sec]"));
 
           if (truncatedEvents > 0) {
             errorHandler('Note: this range holds ' + formatNumber(eventInfos.length + truncatedEvents) + ' exceptions; ' + formatNumber(eventInfos.length) + ' of them were mapped, spread evenly across the selected vehicles and rules. Narrow the date range, the vehicles or the rules to map them all.');
@@ -4222,7 +4430,11 @@ geotab.addin.heatmap = function () {
       loadVehiclesForSelectedGroups();
     });
     elVehicleGroups.addEventListener('change', loadVehiclesForSelectedGroups);
-    elZoneTypes.addEventListener('change', populateZoneOptions);
+    elZoneTypes.addEventListener('change', function () {
+      populateZoneOptions();
+      renderGeotabZoneLayer();
+    });
+    elZones.addEventListener('change', renderGeotabZoneLayer);
     document.getElementById('exceptionTypes').addEventListener('change', function (event) {
       event.preventDefault();
     });
@@ -4309,6 +4521,7 @@ geotab.addin.heatmap = function () {
       parentByGroupId = {};
       availableZoneTypes = [];
       availableZones = [];
+      zoneShapeCache = null;
 
       // One multiCall instead of five parallel requests: MyGeotab reports
       // "unable to connect to your database" when a burst of large Get calls
@@ -4390,6 +4603,7 @@ geotab.addin.heatmap = function () {
         availableZones = (zones || []).filter(function (zone) {
           return zone && zone.id && zone.name && zoneCoordinates(zone).length >= 3;
         }).sort(sortByName);
+        zoneShapeCache = null;
         populateZoneOptions();
         if (rules && rules.length) {
           rules.sort(sortByName);

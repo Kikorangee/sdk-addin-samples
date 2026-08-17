@@ -169,6 +169,16 @@ select.checkmateFormEditField {
     box-shadow: 0 0 0 3px #f2a900, 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
+.geotab-zone-flag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #e8eaf6;
+    color: #283593;
+    font-weight: 700;
+}
+
 .school-zone-flag {
     display: inline-block;
     margin-top: 4px;
