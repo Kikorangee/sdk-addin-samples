@@ -252,6 +252,54 @@ select.checkmateFormEditField {
     color: #4a2c00;
 }
 
+/* Speeding and idling own their controls, away from the generic rule dropdown. */
+.rule-section {
+    margin: 8px 0 4px;
+    padding: 6px 8px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+}
+
+.rule-section h3 {
+    margin: 2px 0 4px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.idle-cost-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0 2px;
+}
+
+.idle-cost-inputs label { margin: 0; font-size: 11px; }
+.idle-cost-inputs input { width: 58px; }
+
+/* Each vehicle's five costliest idling events. */
+.idling-flag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #e1f5fe;
+    color: #01579b;
+    font-weight: 700;
+}
+
+.metric-legend .top-idling-row { display: block; }
+.metric-legend .top-idling-row.is-only { font-weight: 700; }
+
+.event-metric-marker.is-top-idling span { box-shadow: 0 0 0 2px #4fc3f7; }
+.event-metric-marker .top-idling-rank {
+    margin-left: 4px;
+    padding: 0 3px;
+    border-radius: 2px;
+    background: #4fc3f7;
+    color: #08334d;
+}
+
 .school-zone-legend > strong { display: flex; align-items: center; gap: 6px; }
 .school-zone-legend > strong i { width: 12px; height: 12px; flex: 0 0 auto; border: 1px solid #f2a900; background: rgba(242, 169, 0, 0.35); }
 .school-zone-legend span { display: flex; align-items: center; gap: 6px; margin-top: 4px; }

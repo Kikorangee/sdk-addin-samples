@@ -15,6 +15,8 @@ geotab.addin.heatmap = function () {
   var metricDetailsVisible = false;
   var heatMapPoints = [];
   var elExceptionTypes;
+  var elSpeedingRules;
+  var elIdlingRules;
   var elShowExceptionHeatMap;
   var elGroupTypes;
   var elVehicleGroups;
@@ -22,6 +24,8 @@ geotab.addin.heatmap = function () {
   var elZoneTypes;
   var elZones;
   var ruleDropdown;
+  var speedingRuleDropdown;
+  var idlingRuleDropdown;
   var groupTypeDropdown;
   var vehicleGroupDropdown;
   var vehicleDropdown;
@@ -101,6 +105,18 @@ geotab.addin.heatmap = function () {
   var elSpeedBandStatus;
   var elTopSpeedingOnly;
   var TOP_SPEEDING_PER_VEHICLE = 5;
+
+  // Idling has its own section because its events are ranked by what they cost
+  // rather than by speed: cost = idle hours x litres/hour x price per litre,
+  // the same model as the standalone idling dashboard.
+  var TOP_IDLING_PER_VEHICLE = 5;
+  var IDLE_DEFAULT_FUEL_BURN = 3;
+  var IDLE_DEFAULT_FUEL_PRICE = 1.9;
+  var elIdleMinMinutes;
+  var elIdleFuelBurn;
+  var elIdleFuelPrice;
+  var elTopIdlingOnly;
+  var elIdleCostStatus;
 
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
@@ -203,8 +219,8 @@ geotab.addin.heatmap = function () {
     var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
       return option.text;
     });
-    var selectedRules = Array.from(elExceptionTypes.selectedOptions || []).map(function (option) {
-      return option.text;
+    var selectedRules = selectedExceptionRules().map(function (rule) {
+      return rule.name;
     });
     var pointTotal = (exceptionMode ? metricMapData : heatMapPoints).reduce(function (sum, point) {
       return sum + (exceptionMode ? 1 : Number(point.value) || 1);
@@ -449,6 +465,11 @@ geotab.addin.heatmap = function () {
         detail = 'Peak vehicle speed: ' + label + ' (posted limit unavailable)';
       }
       kind = 'speed';
+    } else if (lowerName.indexOf('idl') > -1) {
+      // Idling is measured by how long the engine ran stationary; the cost is
+      // applied later so the editable fuel burn and price stay live.
+      kind = 'idle';
+      detail = 'Idle duration: ' + label;
     } else if (lowerName.indexOf('harsh') > -1 || lowerName.indexOf('hard acceleration') > -1) {
       var bestG = 0;
       var hasForceSample = false;
@@ -488,6 +509,7 @@ geotab.addin.heatmap = function () {
       lon: Number(chosen.longitude),
       label: label,
       kind: kind,
+      durationMs: durationMs,
       speedLimit: speedLimit,
       vehicleSpeed: Number.isFinite(Number(chosen.speed)) ? Math.round(Number(chosen.speed)) : peakSpeed,
       ruleName: name,
@@ -773,9 +795,128 @@ geotab.addin.heatmap = function () {
   function topSpeedingFilterActive() {
     return !!(elTopSpeedingOnly && elTopSpeedingOnly.checked);
   }
-  function metricPassesTopSpeedingFilter(metric) {
-    if (!topSpeedingFilterActive()) return true;
-    return !!metric.topSpeedingRank;
+  function topIdlingFilterActive() {
+    return !!(elTopIdlingOnly && elTopIdlingOnly.checked);
+  }
+
+  /**
+   * The two ring-fence toggles are additive: with both ticked the map keeps each
+   * vehicle's worst speeding events and its costliest idling events.
+   * @param {object} metric - A mapped exception event.
+   */
+  function metricPassesRankFilters(metric) {
+    var speedingOnly = topSpeedingFilterActive();
+    var idlingOnly = topIdlingFilterActive();
+    if (!speedingOnly && !idlingOnly) return true;
+    if (speedingOnly && metric.topSpeedingRank) return true;
+    if (idlingOnly && metric.topIdlingRank) return true;
+    return false;
+  }
+  function ruleIsSpeeding(rule) {
+    var name = String((rule && rule.name) || '').toLowerCase();
+    var id = String((rule && rule.id) || '');
+    return name.indexOf('speed') > -1 || id.indexOf('Speeding') > -1;
+  }
+
+  /**
+   * Idling covers both plain idling rules and the built-in preventable idling
+   * rule, which is the one the idling dashboard defaults to.
+   * @param {object} rule - A MyGeotab Rule.
+   */
+  function ruleIsIdling(rule) {
+    var name = String((rule && rule.name) || '').toLowerCase();
+    var id = String((rule && rule.id) || '');
+    return name.indexOf('idl') > -1 || id.indexOf('Idling') > -1;
+  }
+  function positiveNumber(value, fallback) {
+    var parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+  function idleFuelBurn() {
+    return positiveNumber(elIdleFuelBurn && elIdleFuelBurn.value, IDLE_DEFAULT_FUEL_BURN);
+  }
+  function idleFuelPrice() {
+    return positiveNumber(elIdleFuelPrice && elIdleFuelPrice.value, IDLE_DEFAULT_FUEL_PRICE);
+  }
+  function idleMinMinutes() {
+    return positiveNumber(elIdleMinMinutes && elIdleMinMinutes.value, 0);
+  }
+  function metricPassesIdleDurationFilter(metric) {
+    if (metric.kind !== 'idle') return true;
+    var minimum = idleMinMinutes();
+    if (!minimum) return true;
+    return (metric.idleMinutes || 0) >= minimum;
+  }
+
+  /**
+   * Costs every idling event from the editable fuel burn and price, then ranks
+   * each vehicle's costliest events. Only events long enough to pass the minimum
+   * duration are ranked, so the ring-fence follows the selected duration.
+   */
+  function annotateMetricsWithIdling() {
+    var burn = idleFuelBurn();
+    var price = idleFuelPrice();
+    var byVehicle = {};
+    var totalHours = 0;
+    var totalCost = 0;
+    var idlingCount = 0;
+    metricMapData.forEach(function (metric) {
+      metric.topIdlingRank = null;
+      if (metric.kind !== 'idle') return;
+      var hours = Math.max(0, Number(metric.durationMs) || 0) / 3600000;
+      metric.idleMinutes = hours * 60;
+      metric.idleLitres = hours * burn;
+      metric.idleCost = metric.idleLitres * price;
+      metric.label = Math.round(metric.idleMinutes) + ' min \u2022 $' + metric.idleCost.toFixed(2);
+      if (!metricPassesIdleDurationFilter(metric)) return;
+      idlingCount++;
+      totalHours += hours;
+      totalCost += metric.idleCost;
+      var key = metric.vehicleName || '';
+      if (!byVehicle[key]) byVehicle[key] = [];
+      byVehicle[key].push(metric);
+    });
+    Object.keys(byVehicle).forEach(function (key) {
+      byVehicle[key].sort(function (a, b) {
+        return b.idleCost - a.idleCost;
+      }).slice(0, TOP_IDLING_PER_VEHICLE).forEach(function (metric, position) {
+        metric.topIdlingRank = position + 1;
+      });
+    });
+    setIdleCostStatus(idlingCount ? idlingCount + ' idling event' + (idlingCount === 1 ? '' : 's') + ' \u2022 ' + totalHours.toFixed(1) + ' idle hours \u2022 $' + totalCost.toFixed(2) + ' at ' + burn + ' L/h and $' + price.toFixed(2) + '/L.' : 'Select idling rule(s) and show results to cost idling events at ' + burn + ' L/h and $' + price.toFixed(2) + '/L.');
+  }
+  function setIdleCostStatus(text) {
+    if (elIdleCostStatus) elIdleCostStatus.textContent = text || '';
+  }
+
+  /**
+   * Recosts and redraws idling after a rate or duration change, without
+   * refetching anything from MyGeotab.
+   */
+  /**
+   * The rules to query: the speeding and idling sections plus whatever is picked
+   * in the generic rule dropdown.
+   */
+  function selectedExceptionRules() {
+    var rules = [];
+    [elSpeedingRules, elIdlingRules, elExceptionTypes].forEach(function (select) {
+      if (!select) return;
+      Array.prototype.slice.call(select.options).forEach(function (option) {
+        if (option.selected && !option.disabled && option.value) {
+          rules.push({
+            id: option.value,
+            name: option.text
+          });
+        }
+      });
+    });
+    return rules;
+  }
+  function refreshIdlingPresentation() {
+    annotateMetricsWithIdling();
+    displayMetricLegend(metricMapData);
+    renderMetricMarkers();
+    updateMapEventTotal();
   }
   function describeSpeedBand(metric) {
     var band = metric.speedBand == null ? null : speedBandByIndex(metric.speedBand);
@@ -802,7 +943,7 @@ geotab.addin.heatmap = function () {
    * @param {object} metric - A mapped exception event.
    */
   function metricPassesFilters(metric) {
-    return metricPassesZoneFilter(metric) && metricPassesBandFilter(metric) && metricPassesTopSpeedingFilter(metric);
+    return metricPassesZoneFilter(metric) && metricPassesBandFilter(metric) && metricPassesIdleDurationFilter(metric) && metricPassesRankFilters(metric);
   }
   function schoolZoneSpeedingCount() {
     return metricMapData.filter(function (metric) {
@@ -1073,7 +1214,7 @@ geotab.addin.heatmap = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
       element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
         return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
+      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -1116,6 +1257,28 @@ geotab.addin.heatmap = function () {
       vehicles[metric.vehicleName || ''] = true;
     });
     return '<span class="top-speeding-row' + (topSpeedingFilterActive() ? ' is-only' : '') + '">Top ' + TOP_SPEEDING_PER_VEHICLE + ' speeding per vehicle <b>' + formatNumber(ranked.length) + '</b> across ' + formatNumber(Object.keys(vehicles).length) + ' vehicles</span>';
+  }
+
+  /**
+   * Idle hours and their fuel cost for the events the map is showing, plus how
+   * many of each vehicle's costliest events are ringed.
+   */
+  function idlingLegendRows() {
+    var idling = metricMapData.filter(function (metric) {
+      return metric.kind === 'idle' && metricPassesZoneFilter(metric) && metricPassesIdleDurationFilter(metric);
+    });
+    if (!idling.length) return '';
+    var hours = idling.reduce(function (sum, metric) {
+      return sum + (metric.idleMinutes || 0) / 60;
+    }, 0);
+    var cost = idling.reduce(function (sum, metric) {
+      return sum + (metric.idleCost || 0);
+    }, 0);
+    var ranked = idling.filter(function (metric) {
+      return metric.topIdlingRank;
+    });
+    var minimum = idleMinMinutes();
+    return '<strong class="speed-band-heading">Idling</strong>' + '<span>' + formatNumber(idling.length) + ' events • ' + hours.toFixed(1) + ' h <b>$' + cost.toFixed(2) + '</b></span>' + (minimum ? '<span>Minimum ' + minimum + ' min per event</span>' : '') + '<span class="top-idling-row' + (topIdlingFilterActive() ? ' is-only' : '') + '">Top ' + TOP_IDLING_PER_VEHICLE + ' costliest per vehicle <b>' + formatNumber(ranked.length) + '</b></span>';
   }
 
   // A roundel of the posted limit sits above each mapped speeding event. Events
@@ -1163,13 +1326,14 @@ geotab.addin.heatmap = function () {
       addSpeedLimitSign(metric, acceptedSignPoints);
       var zoneWord = metric.schoolZone && metric.schoolZone.isSchool ? 'school zone' : 'zone';
       var bandText = describeSpeedBand(metric);
-      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '');
-      var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
+      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '') + (metric.topIdlingRank ? ' \u2022 #' + metric.topIdlingRank + ' costliest idling for this vehicle' : '');
+      var rank = metric.topSpeedingRank || metric.topIdlingRank;
+      var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (metric.kind === 'idle' ? '<br><span class="idling-flag">' + (metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest idling event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + ' \u2014 ' : '') + Math.round(metric.idleMinutes || 0) + ' min idling \u2022 ' + (metric.idleLitres || 0).toFixed(1) + ' L \u2022 $' + (metric.idleCost || 0).toFixed(2) + ' at ' + idleFuelBurn() + ' L/h and $' + idleFuelPrice().toFixed(2) + '/L</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
       var bandRing = metric.speedBand > 0 ? speedBandByIndex(metric.speedBand) : null;
       var dot = L.circleMarker([metric.lat, metric.lon], {
-        radius: metric.topSpeedingRank ? 7 : bandRing ? 5 : 4,
-        color: bandRing ? bandRing.color : metric.topSpeedingRank ? '#ffd166' : '#ffffff',
-        weight: metric.topSpeedingRank ? 3 : bandRing ? 2 : 1,
+        radius: rank ? 7 : bandRing ? 5 : 4,
+        color: bandRing ? bandRing.color : metric.topSpeedingRank ? '#ffd166' : metric.topIdlingRank ? '#4fc3f7' : '#ffffff',
+        weight: rank ? 3 : bandRing ? 2 : 1,
         fillColor: metric.color,
         fillOpacity: 0.95
       });
@@ -1204,8 +1368,8 @@ geotab.addin.heatmap = function () {
       }
       var marker = L.marker(labelLatLng, {
         icon: L.divIcon({
-          className: 'event-metric-marker event-metric-' + metric.kind + (metric.topSpeedingRank ? ' is-top-speeding' : ''),
-          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + (metric.topSpeedingRank ? '<b class="top-speeding-rank">#' + metric.topSpeedingRank + '</b>' : '') + '</span>',
+          className: 'event-metric-marker event-metric-' + metric.kind + (metric.topSpeedingRank ? ' is-top-speeding' : '') + (metric.topIdlingRank ? ' is-top-idling' : ''),
+          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + (rank ? '<b class="' + (metric.topSpeedingRank ? 'top-speeding-rank' : 'top-idling-rank') + '">#' + rank + '</b>' : '') + '</span>',
           iconSize: [70, 30],
           iconAnchor: [8, 15]
         })
@@ -1224,6 +1388,7 @@ geotab.addin.heatmap = function () {
     annotateMetricsWithSchoolZones();
     annotateMetricsWithSpeedBands();
     annotateMetricsWithTopSpeeding();
+    annotateMetricsWithIdling();
     displayMetricLegend(metrics);
     displaySchoolZoneLegend();
     renderMetricMarkers();
@@ -1830,16 +1995,7 @@ geotab.addin.heatmap = function () {
     });
   };
   var displayHeatMapForExceptionHistory = function displayHeatMapForExceptionHistory() {
-    var selectedRules = [];
-    for (var _i3 = 0; _i3 < elExceptionTypes.options.length; _i3++) {
-      var ruleOption = elExceptionTypes.options[_i3];
-      if (ruleOption.selected && !ruleOption.disabled && ruleOption.value) {
-        selectedRules.push({
-          id: ruleOption.value,
-          name: ruleOption.text
-        });
-      }
-    }
+    var selectedRules = selectedExceptionRules();
 
     // Get selected device IDs.
     var deviceIds = [];
@@ -2288,7 +2444,7 @@ geotab.addin.heatmap = function () {
   // System Settings configuration, so an outdated page can be served alongside
   // the current script. Reporting the missing ids makes that visible instead of
   // leaving a loaded but inert Add-In.
-  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
+  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'speedingRules', 'idlingRules', 'idleMinMinutes', 'idleFuelBurn', 'idleFuelPrice', 'topIdlingOnly', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
   var reportUnsupportedPage = function reportUnsupportedPage(missingIds) {
     var message = 'This Heat Map page is out of date and is missing: ' + missingIds.join(', ') + '. Update the MyGeotab Add-In configuration URL to the current Heat Map page, then reload.';
     var banner = document.createElement('div');
@@ -2368,7 +2524,16 @@ geotab.addin.heatmap = function () {
     elVehicles = document.getElementById('vehicles');
     elZoneTypes = document.getElementById('zoneTypes');
     elZones = document.getElementById('zones');
+    elSpeedingRules = document.getElementById('speedingRules');
+    elIdlingRules = document.getElementById('idlingRules');
+    elIdleMinMinutes = document.getElementById('idleMinMinutes');
+    elIdleFuelBurn = document.getElementById('idleFuelBurn');
+    elIdleFuelPrice = document.getElementById('idleFuelPrice');
+    elTopIdlingOnly = document.getElementById('topIdlingOnly');
+    elIdleCostStatus = document.getElementById('idleCostStatus');
     ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
+    speedingRuleDropdown = enhanceMultiSelect(elSpeedingRules, 'Select speeding rules');
+    idlingRuleDropdown = enhanceMultiSelect(elIdlingRules, 'Select idling rules');
     groupTypeDropdown = enhanceMultiSelect(elGroupTypes, 'All group types');
     vehicleGroupDropdown = enhanceMultiSelect(elVehicleGroups, 'All vehicle groups');
     vehicleDropdown = enhanceMultiSelect(elVehicles, 'Select vehicles');
@@ -2443,19 +2608,22 @@ geotab.addin.heatmap = function () {
       });
     });
     setDatePreset('today');
-    document.getElementById('visualizeByLocationHistory').addEventListener('click', function (event) {
-      elExceptionTypes.disabled = true;
-      elShowExceptionHeatMap.disabled = true;
+    var setExceptionControlsEnabled = function setExceptionControlsEnabled(enabled) {
+      elExceptionTypes.disabled = !enabled;
+      elSpeedingRules.disabled = !enabled;
+      elIdlingRules.disabled = !enabled;
+      elShowExceptionHeatMap.disabled = !enabled;
       ruleDropdown.rebuild();
+      speedingRuleDropdown.rebuild();
+      idlingRuleDropdown.rebuild();
       syncHeatMapVisibility();
       updateMapEventTotal();
+    };
+    document.getElementById('visualizeByLocationHistory').addEventListener('click', function (event) {
+      setExceptionControlsEnabled(false);
     });
     document.getElementById('visualizeByExceptionHistory').addEventListener('click', function (event) {
-      elExceptionTypes.disabled = false;
-      elShowExceptionHeatMap.disabled = false;
-      ruleDropdown.rebuild();
-      syncHeatMapVisibility();
-      updateMapEventTotal();
+      setExceptionControlsEnabled(true);
     });
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
     if (elShowSchoolZones) elShowSchoolZones.addEventListener('change', syncSchoolZoneVisibility);
@@ -2472,6 +2640,11 @@ geotab.addin.heatmap = function () {
       renderMetricMarkers();
       updateMapEventTotal();
     });
+    if (elTopIdlingOnly) elTopIdlingOnly.addEventListener('change', refreshIdlingPresentation);
+    if (elIdleMinMinutes) elIdleMinMinutes.addEventListener('change', refreshIdlingPresentation);
+    if (elIdleFuelBurn) elIdleFuelBurn.addEventListener('change', refreshIdlingPresentation);
+    if (elIdleFuelPrice) elIdleFuelPrice.addEventListener('change', refreshIdlingPresentation);
+    setIdleCostStatus('Idling cost = idle hours \u00d7 ' + idleFuelBurn() + ' L/h \u00d7 $' + idleFuelPrice().toFixed(2) + '/L. Both rates are editable.');
     elGroupTypes.addEventListener('change', function () {
       populateVehicleGroupOptions();
       loadVehiclesForSelectedGroups();
@@ -2648,13 +2821,24 @@ geotab.addin.heatmap = function () {
         populateZoneOptions();
         if (rules && rules.length) {
           rules.sort(sortByName);
+          // Speeding and idling get their own selectors so their dedicated
+          // controls apply to a known set of rules; everything else stays in the
+          // generic rule dropdown.
           rules.forEach(function (rule) {
             var option = new Option();
             option.text = rule.name;
             option.value = rule.id;
-            elExceptionTypes.add(option);
+            if (ruleIsSpeeding(rule)) {
+              elSpeedingRules.add(option);
+            } else if (ruleIsIdling(rule)) {
+              elIdlingRules.add(option);
+            } else {
+              elExceptionTypes.add(option);
+            }
           });
           ruleDropdown.rebuild();
+          speedingRuleDropdown.rebuild();
+          idlingRuleDropdown.rebuild();
         }
       }, errorHandler);
       setTimeout(function () {

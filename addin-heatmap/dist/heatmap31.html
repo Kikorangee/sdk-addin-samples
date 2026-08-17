@@ -10,9 +10,9 @@
 
   <link rel="stylesheet" href="styles/vendor.css">
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.38">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.39">
   <script src="scripts/vendor.js"></script>
-  <script src="scripts/main.js?v=1.0.38"></script>
+  <script src="scripts/main.js?v=1.0.39"></script>
 </head>
 
 <body>
@@ -78,7 +78,7 @@
           <input type="radio" id="visualizeByLocationHistory" name="visualizeBy" value="locationHistory" checked> Location History
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
 
-          <label for="exceptionTypes">Rule(s):</label>
+          <label for="exceptionTypes">Other rule(s):</label>
           <select id="exceptionTypes" class="checkmateFormEditField multi-select-native" multiple disabled>
               <option disabled="disabled">Select one or more rules</option>
           </select>
@@ -103,13 +103,43 @@
           </label>
           <small class="control-help" id="schoolZoneStatus"></small>
 
-          <label for="speedBands">Speed band(s):</label>
-          <div class="speed-zone-categories" id="speedBands"></div>
-          <small class="control-help" id="speedBandStatus"></small>
-          <label class="exception-heat-toggle" for="topSpeedingOnly">
-            <input type="checkbox" id="topSpeedingOnly">
-            Only the top 5 speeding events per vehicle
-          </label>
+          <section class="rule-section" id="speedingSection">
+            <h3>Speeding</h3>
+            <label for="speedingRules">Speeding rule(s):</label>
+            <select id="speedingRules" class="checkmateFormEditField multi-select-native" multiple disabled></select>
+            <label for="speedBands">Speed band(s):</label>
+            <div class="speed-zone-categories" id="speedBands"></div>
+            <small class="control-help" id="speedBandStatus"></small>
+            <label class="exception-heat-toggle" for="topSpeedingOnly">
+              <input type="checkbox" id="topSpeedingOnly">
+              Only the top 5 speeding events per vehicle
+            </label>
+          </section>
+
+          <section class="rule-section" id="idlingSection">
+            <h3>Idling</h3>
+            <label for="idlingRules">Idling rule(s):</label>
+            <select id="idlingRules" class="checkmateFormEditField multi-select-native" multiple disabled></select>
+            <label for="idleMinMinutes">Min event duration:</label>
+            <select id="idleMinMinutes" class="checkmateFormEditField">
+              <option value="0" selected>Any duration</option>
+              <option value="5">&#8805; 5 min</option>
+              <option value="15">&#8805; 15 min</option>
+              <option value="30">&#8805; 30 min</option>
+              <option value="60">&#8805; 60 min</option>
+            </select>
+            <div class="idle-cost-inputs">
+              <label for="idleFuelBurn">Fuel L/h</label>
+              <input type="number" id="idleFuelBurn" min="0" step="0.1" value="3">
+              <label for="idleFuelPrice">$ / L</label>
+              <input type="number" id="idleFuelPrice" min="0" step="0.01" value="1.90">
+            </div>
+            <label class="exception-heat-toggle" for="topIdlingOnly">
+              <input type="checkbox" id="topIdlingOnly">
+              Only the top 5 costliest idling events per vehicle
+            </label>
+            <small class="control-help" id="idleCostStatus"></small>
+          </section>
 
           <label for="groupTypes">Group type(s):</label>
           <select id="groupTypes" class="checkmateFormEditField multi-select-native" multiple></select>
@@ -132,13 +162,14 @@
             <summary id="instructions-title">Instructions</summary>
             <ol>
               <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
-              <li>If visualizing by exception history, select one or more rules to search.</li>
+              <li>If visualizing by exception history, select one or more rules to search: speeding rules in the <i>Speeding</i> section, idling rules in the <i>Idling</i> section, and everything else in <i>Other rule(s)</i>.</li>
               <li>Optionally select a group type and vehicle group, then select the vehicle(s) to search.</li>
               <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
               <li>In exception history, untick <i>Show heatmap layer</i> to keep exception data and event details without heat colouring.</li>
               <li>Tick <i>Show speed limit zones</i> and pick the posted limits (10&ndash;110) to overlay the NZTA speed limit zones for the current map view; events inside a zone show that zone's limit on their sign and are counted in the zone legend.</li>
               <li>Untick a <i>Speed band</i> to hide the events in it. The bands are your database's Risk Management speed bands (Administration &rarr; System Settings), and each event is banded by its peak vehicle speed.</li>
               <li>Tick <i>Only the top 5 speeding events per vehicle</i> to ring-fence each vehicle's five fastest speeding events. Those events always carry a ranked badge (#1 is that vehicle's fastest) and a highlighted ring, whether or not the filter is on.</li>
+              <li>In <i>Idling</i>, choose a minimum event duration and set <i>Fuel L/h</i> and <i>$ / L</i>; every idling event is costed as idle hours &times; L/h &times; $/L, and the five costliest per vehicle carry a ranked badge and a highlighted ring. Tick <i>Only the top 5 costliest idling events per vehicle</i> to keep just those.</li>
               <li>Tick <i>School zones only</i> to keep just the school zones, and <i>Only events inside the selected zones</i> to search speeding and every other exception within those zones alone.</li>
               <li>Specify a date/time range and click <i>Show Results</i>.</li>
               <li>Use <i>Refresh data</i> after changing the MyGeotab Groups Filter or when fleet data changes.</li>
