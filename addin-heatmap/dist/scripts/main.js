@@ -110,6 +110,7 @@ geotab.addin.heatmap = function () {
   // rather than by speed: cost = idle hours x litres/hour x price per litre,
   // the same model as the standalone idling dashboard.
   var TOP_IDLING_PER_VEHICLE = 5;
+  var PRINT_TABLE_ROW_LIMIT = 750;
   var IDLE_DEFAULT_FUEL_BURN = 3;
   var IDLE_DEFAULT_FUEL_PRICE = 1.9;
   var elIdleMinMinutes;
@@ -117,6 +118,61 @@ geotab.addin.heatmap = function () {
   var elIdleFuelPrice;
   var elTopIdlingOnly;
   var elIdleCostStatus;
+
+  // Weight history reads the cargo weight diagnostic and compares it with the
+  // axle scale register shipped in weight-register.js: over the GML payload is
+  // an overload, over the GVM payload leaves the vehicle without cover.
+  var WEIGHT_DIAGNOSTIC_SEARCH = '%cargo weight%';
+  var WEIGHT_WINDOW_HOURS = 6;
+  var WEIGHT_MAX_WINDOWS = 60;
+  var WEIGHT_RESULTS_LIMIT = 50000;
+  var WEIGHT_MATCH_TOLERANCE_MS = 5 * 60 * 1000;
+  var WEIGHT_RUN_GAP_MS = 15 * 60 * 1000;
+  var TOP_WEIGHT_PER_VEHICLE = 5;
+  var WEIGHT_DEFAULT_FALLBACK_TONNES = 10;
+  var WEIGHT_DEFAULT_WARN_PCT = 80;
+  var WEIGHT_STATUS_COLORS = {
+    critical: '#8e0000',
+    over: '#d32f2f',
+    warn: '#f0a000',
+    under: '#2e9e44',
+    unknown: '#6f7c8a'
+  };
+  var WEIGHT_STATUS_LABELS = {
+    critical: 'Over GVM payload',
+    over: 'Over payload limit',
+    warn: 'Approaching payload limit',
+    under: 'Under payload limit',
+    unknown: 'No payload limit set'
+  };
+  var weightDiagnosticId = null;
+  var elWeightFallbackTonnes;
+  var elWeightWarnPct;
+  var elWeightOverOnly;
+  var elTopWeightOnly;
+  var elWeightStatus;
+
+  // Live monitoring polls MyGeotab: the API offers no push channel to an
+  // add-in, so freshness is bounded by the chosen interval. Polling is
+  // suspended while the tab is hidden or the add-in loses focus.
+  var LIVE_EXCEPTION_ALERT_MS = 15 * 60 * 1000;
+  var LIVE_WEIGHT_LOOKBACK_MS = 60 * 60 * 1000;
+  var LIVE_MAX_ALERTS = 25;
+  var liveLayer;
+  var liveTimer = null;
+  var liveLoading = false;
+  var liveFeedVersion = null;
+  var liveVehicles = [];
+  var liveAlertLog = [];
+  var liveExceptionsByDevice = {};
+  var elLiveMonitor;
+  var elLiveInterval;
+  var elLiveSpeedThreshold;
+  var elLiveWeightAlerts;
+  var elLiveExceptionAlerts;
+  var elLiveAlertsOnly;
+  var elLiveAlerts;
+  var elLiveStatus;
 
   // Browser cache: one compact record per database/user, mode, vehicle, rule
   // and UTC day. Historical days are immutable; today's record expires after
@@ -191,10 +247,29 @@ geotab.addin.heatmap = function () {
   function getElapsedTimeSeconds() {
     return Math.round((new Date() - startTime) / 1000);
   }
+  function modeIsChecked(id) {
+    var element = document.getElementById(id);
+    return !!(element && element.checked);
+  }
+  function exceptionModeActive() {
+    return modeIsChecked('visualizeByExceptionHistory');
+  }
+  function weightModeActive() {
+    return modeIsChecked('visualizeByWeightHistory');
+  }
+
+  /**
+   * Both exception and weight history plot discrete events, so they share the
+   * event counters, legend, marker and print pipeline. Location history plots
+   * raw GPS points instead.
+   */
+  function eventModeActive() {
+    return exceptionModeActive() || weightModeActive();
+  }
   function updateMapEventTotal() {
     if (!elMapEventTotal) return;
     var bounds = map && map.getBounds ? map.getBounds() : null;
-    var exceptionMode = document.getElementById('visualizeByExceptionHistory') && document.getElementById('visualizeByExceptionHistory').checked;
+    var exceptionMode = eventModeActive();
     var visibleCount = 0;
     var totalCount = 0;
     var countablePoints = exceptionMode ? metricMapData : heatMapPoints;
@@ -206,7 +281,93 @@ geotab.addin.heatmap = function () {
         visibleCount += weight;
       }
     });
-    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + (exceptionMode ? 'exceptions' : 'GPS points') + ' in view</span>' + '<small>' + formatNumber(totalCount) + (exceptionMode ? ' mapped exceptions loaded' : ' GPS points loaded') + '</small>';
+    var noun = weightModeActive() ? 'weight events' : exceptionMode ? 'exceptions' : 'GPS points';
+    elMapEventTotal.innerHTML = '<strong>' + formatNumber(visibleCount) + '</strong>' + '<span>' + noun + ' in view</span>' + '<small>' + formatNumber(totalCount) + ' ' + (exceptionMode ? 'mapped ' + noun + ' loaded' : 'GPS points loaded') + '</small>';
+  }
+  /**
+   * The events the printed table lists: everything currently drawn on the map,
+   * ordered by vehicle then by when it happened.
+   */
+  function printableMetrics() {
+    return metricMapData.filter(metricPassesFilters).slice().sort(function (a, b) {
+      var vehicle = String(a.vehicleName || '').localeCompare(String(b.vehicleName || ''));
+      if (vehicle !== 0) return vehicle;
+      return new Date(a.startTime || 0) - new Date(b.startTime || 0);
+    });
+  }
+  function printMetricRow(metric, index) {
+    var limit = metric.schoolZoneLimit != null ? metric.schoolZoneLimit : metric.speedLimit;
+    var zone = metric.schoolZone ? describeSchoolZone(metric.schoolZone) : '';
+    var rank = metric.topSpeedingRank ? '#' + metric.topSpeedingRank + ' fastest' : metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest' : metric.topWeightRank ? '#' + metric.topWeightRank + ' heaviest' : '';
+    // Speed columns are meaningless for an idling event, so they stay blank
+    // rather than reporting the speed the vehicle happened to reach nearby.
+    var idle = metric.kind === 'idle';
+    var weight = metric.kind === 'weight';
+    var cells = [index + 1, metric.vehicleName || '', weight && metric.weightRego ? metric.ruleName + ' (' + metric.weightRego + ')' : metric.ruleName || '', metric.startTime ? new Date(metric.startTime).toLocaleString() : '', formatDuration(metric.durationMs || 0), metric.label || '', !idle && !weight && Number.isFinite(metric.vehicleSpeed) ? metric.vehicleSpeed + ' km/h' : '', !idle && !weight && limit != null ? limit + ' km/h' : '', idle || weight ? '' : describeSpeedBand(metric) || '', idle ? '$' + (metric.idleCost || 0).toFixed(2) : '', weight ? formatTonnes(metric.weightKg) + ' t' : '', weight && metric.weightPct != null ? Math.round(metric.weightPct) + '%' : '', zone, rank];
+    return '<tr>' + cells.map(function (cell) {
+      return '<td>' + escapeHtml(String(cell)) + '</td>';
+    }).join('') + '</tr>';
+  }
+  function buildPrintReportTable(exceptionMode) {
+    var container = document.getElementById('printReportTable');
+    if (!container) {
+      container = document.createElement('section');
+      container.id = 'printReportTable';
+      document.getElementById('heatmap').appendChild(container);
+    }
+    if (!exceptionMode) {
+      container.innerHTML = '<p class="print-table-note">Location history plots GPS points only, so there is no per-event table to print. Switch to exception history for a table of results.</p>';
+      return;
+    }
+    var metrics = printableMetrics();
+    if (!metrics.length) {
+      container.innerHTML = '<p class="print-table-note">No ' + (weightModeActive() ? 'weight' : 'exception') + ' events match the current filters.</p>';
+      return;
+    }
+    var byVehicle = {};
+    metrics.forEach(function (metric) {
+      var key = metric.vehicleName || 'Unknown vehicle';
+      if (!byVehicle[key]) byVehicle[key] = {
+        events: 0,
+        idleCost: 0,
+        idleMinutes: 0,
+        topSpeed: null,
+        peakCargoKg: null,
+        peakCargoPct: null
+      };
+      var summary = byVehicle[key];
+      summary.events++;
+      summary.idleCost += metric.idleCost || 0;
+      summary.idleMinutes += metric.idleMinutes || 0;
+      if (metric.kind !== 'idle' && Number.isFinite(metric.vehicleSpeed) && (summary.topSpeed == null || metric.vehicleSpeed > summary.topSpeed)) {
+        summary.topSpeed = metric.vehicleSpeed;
+      }
+      if (Number.isFinite(metric.weightKg) && (summary.peakCargoKg == null || metric.weightKg > summary.peakCargoKg)) {
+        summary.peakCargoKg = metric.weightKg;
+      }
+      if (Number.isFinite(metric.weightPct) && (summary.peakCargoPct == null || metric.weightPct > summary.peakCargoPct)) {
+        summary.peakCargoPct = metric.weightPct;
+      }
+    });
+    var summaryRows = Object.keys(byVehicle).sort().map(function (name) {
+      var summary = byVehicle[name];
+      return '<tr><td>' + escapeHtml(name) + '</td>' + '<td>' + formatNumber(summary.events) + '</td>' + '<td>' + (summary.topSpeed == null ? '' : summary.topSpeed + ' km/h') + '</td>' + '<td>' + (summary.idleMinutes ? Math.round(summary.idleMinutes) + ' min' : '') + '</td>' + '<td>' + (summary.idleCost ? '$' + summary.idleCost.toFixed(2) : '') + '</td>' + '<td>' + (summary.peakCargoKg == null ? '' : formatTonnes(summary.peakCargoKg) + ' t') + '</td>' + '<td>' + (summary.peakCargoPct == null ? '' : Math.round(summary.peakCargoPct) + '%') + '</td></tr>';
+    }).join('');
+    var truncated = metrics.length > PRINT_TABLE_ROW_LIMIT;
+    var rows = metrics.slice(0, PRINT_TABLE_ROW_LIMIT).map(printMetricRow).join('');
+    container.innerHTML = '<h2>Results by vehicle</h2>' + '<table class="print-table print-summary-table"><thead><tr>' + '<th>Vehicle</th><th>Events</th><th>Peak speed</th><th>Idling</th><th>Idling cost</th><th>Peak cargo</th><th>Worst % of limit</th>' + '</tr></thead><tbody>' + summaryRows + '</tbody></table>' + '<h2>Events</h2>' + '<table class="print-table"><thead><tr>' + '<th>#</th><th>Vehicle</th><th>Rule</th><th>Start</th><th>Duration</th><th>Measure</th>' + '<th>Vehicle speed</th><th>Limit</th><th>Speed band</th><th>Idling cost</th><th>Cargo</th><th>% of limit</th><th>Zone</th><th>Ring-fence</th>' + '</tr></thead><tbody>' + rows + '</tbody></table>' + (truncated ? '<p class="print-table-note">Showing the first ' + formatNumber(PRINT_TABLE_ROW_LIMIT) + ' of ' + formatNumber(metrics.length) + ' events. Narrow the filters or the date range to print the rest.</p>' : '');
+  }
+  // leaflet.heat reads its canvas back with getImageData, which throws while the
+  // map pane still has no measurable size (as happens mid print layout).
+  function redrawHeatMapLayer() {
+    if (!heatMapLayer || !heatMapLayer.redraw) return;
+    var size = map.getSize();
+    if (!size || !size.x || !size.y) return;
+    try {
+      heatMapLayer.redraw();
+    } catch (error) {
+      console.warn('Heat map layer redraw skipped:', error);
+    }
   }
   function preparePrintReport() {
     if (!document.getElementById('printReportHeader')) {
@@ -215,28 +376,29 @@ geotab.addin.heatmap = function () {
       header.innerHTML = '<div><h1>Heatmap Fleet Analytics</h1><p id="printReportFilters"></p></div>' + '<strong id="printReportSummary"></strong>';
       document.getElementById('heatmap').insertBefore(header, document.getElementById('heatmap').firstChild);
     }
-    var exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
+    var exceptionMode = eventModeActive();
     var selectedVehicles = Array.from(elVehicles.selectedOptions || []).map(function (option) {
       return option.text;
     });
     var selectedRules = selectedExceptionRules().map(function (rule) {
       return rule.name;
     });
-    var pointTotal = (exceptionMode ? metricMapData : heatMapPoints).reduce(function (sum, point) {
-      return sum + (exceptionMode ? 1 : Number(point.value) || 1);
+    var pointTotal = exceptionMode ? printableMetrics().length : heatMapPoints.reduce(function (sum, point) {
+      return sum + (Number(point.value) || 1);
     }, 0);
     var fromText = elDateFromInput.value ? new Date(elDateFromInput.value).toLocaleString() : 'Not set';
     var toText = elDateToInput.value ? new Date(elDateToInput.value).toLocaleString() : 'Not set';
-    var subject = exceptionMode ? selectedRules.length ? selectedRules.join(', ') : 'Exception history' : 'Location history';
+    var subject = weightModeActive() ? 'Weight history' : exceptionMode ? selectedRules.length ? selectedRules.join(', ') : 'Exception history' : 'Location history';
     document.getElementById('printReportFilters').textContent = subject + ' | ' + selectedVehicles.length + ' vehicle' + (selectedVehicles.length === 1 ? '' : 's') + ' | ' + fromText + ' to ' + toText + ' | Generated ' + new Date().toLocaleString();
-    document.getElementById('printReportSummary').textContent = formatNumber(pointTotal) + (exceptionMode ? ' mapped exceptions' : ' GPS points');
+    document.getElementById('printReportSummary').textContent = formatNumber(pointTotal) + (weightModeActive() ? ' mapped weight events' : exceptionMode ? ' mapped exceptions' : ' GPS points');
+    buildPrintReportTable(exceptionMode);
     printPreviousMetricDetails = metricDetailsVisible;
     if (exceptionMode && metricMapData.length) metricDetailsVisible = true;
     map.invalidateSize({
       animate: false,
       pan: false
     });
-    if (heatMapLayer && heatMapLayer.redraw) heatMapLayer.redraw();
+    redrawHeatMapLayer();
     renderMetricMarkers();
     updateMapEventTotal();
   }
@@ -249,7 +411,7 @@ geotab.addin.heatmap = function () {
       animate: false,
       pan: false
     });
-    if (heatMapLayer && heatMapLayer.redraw) heatMapLayer.redraw();
+    redrawHeatMapLayer();
     renderMetricMarkers();
     updateMapEventTotal();
   }
@@ -318,7 +480,7 @@ geotab.addin.heatmap = function () {
   }
   function syncHeatMapVisibility() {
     if (!map || !heatMapLayer) return;
-    var exceptionMode = document.getElementById('visualizeByExceptionHistory').checked;
+    var exceptionMode = exceptionModeActive();
     var shouldShow = !exceptionMode || elShowExceptionHeatMap.checked;
     // Keep the layer, its canvas, and all loaded points attached to the map.
     // The exception control changes presentation only, so event data and
@@ -510,6 +672,8 @@ geotab.addin.heatmap = function () {
       label: label,
       kind: kind,
       durationMs: durationMs,
+      startTime: event.activeFrom,
+      distanceKm: Number.isFinite(distance) ? distance : null,
       speedLimit: speedLimit,
       vehicleSpeed: Number.isFinite(Number(chosen.speed)) ? Math.round(Number(chosen.speed)) : peakSpeed,
       ruleName: name,
@@ -807,9 +971,11 @@ geotab.addin.heatmap = function () {
   function metricPassesRankFilters(metric) {
     var speedingOnly = topSpeedingFilterActive();
     var idlingOnly = topIdlingFilterActive();
-    if (!speedingOnly && !idlingOnly) return true;
+    var weightOnly = topWeightFilterActive();
+    if (!speedingOnly && !idlingOnly && !weightOnly) return true;
     if (speedingOnly && metric.topSpeedingRank) return true;
     if (idlingOnly && metric.topIdlingRank) return true;
+    if (weightOnly && metric.topWeightRank) return true;
     return false;
   }
   function ruleIsSpeeding(rule) {
@@ -885,6 +1051,148 @@ geotab.addin.heatmap = function () {
     });
     setIdleCostStatus(idlingCount ? idlingCount + ' idling event' + (idlingCount === 1 ? '' : 's') + ' \u2022 ' + totalHours.toFixed(1) + ' idle hours \u2022 $' + totalCost.toFixed(2) + ' at ' + burn + ' L/h and $' + price.toFixed(2) + '/L.' : 'Select idling rule(s) and show results to cost idling events at ' + burn + ' L/h and $' + price.toFixed(2) + '/L.');
   }
+  /**
+   * The axle scale register is keyed on the asset name with punctuation and
+   * spacing removed, so "COM-001" in the register matches "COM 001" in
+   * MyGeotab.
+   * @param {string} value - A vehicle or asset name.
+   */
+  function normalizeAssetName(value) {
+    return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+  function weightRegisterFor(name) {
+    if (typeof WEIGHT_REGISTER === 'undefined' || !WEIGHT_REGISTER) return null;
+    return WEIGHT_REGISTER[normalizeAssetName(name)] || null;
+  }
+  function weightFallbackKg() {
+    return positiveNumber(elWeightFallbackTonnes && elWeightFallbackTonnes.value, WEIGHT_DEFAULT_FALLBACK_TONNES) * 1000;
+  }
+  function weightWarnPct() {
+    return positiveNumber(elWeightWarnPct && elWeightWarnPct.value, WEIGHT_DEFAULT_WARN_PCT);
+  }
+
+  /**
+   * Payload limits for a vehicle: the register gives an alert limit at the GML
+   * payload and a critical limit at the GVM payload; anything not in the
+   * register falls back to the entered tonnage.
+   * @param {string} vehicleName - The MyGeotab device name.
+   */
+  function weightLimitsFor(vehicleName) {
+    var register = weightRegisterFor(vehicleName);
+    if (register && register.payload) {
+      return {
+        register: register,
+        alertKg: register.payload,
+        criticalKg: register.gvm && register.tare ? register.gvm - register.tare : null,
+        source: 'register'
+      };
+    }
+    var fallback = weightFallbackKg();
+    return {
+      register: register,
+      alertKg: fallback > 0 ? fallback : null,
+      criticalKg: null,
+      source: 'fallback'
+    };
+  }
+  function classifyWeight(kg, limits) {
+    if (!Number.isFinite(kg)) return 'unknown';
+    // A reported weight with nothing to compare it against is unknown, not safe.
+    if (!limits || limits.alertKg == null) return 'unknown';
+    if (limits.criticalKg && kg >= limits.criticalKg) return 'critical';
+    if (kg >= limits.alertKg) return 'over';
+    if (kg >= limits.alertKg * (weightWarnPct() / 100)) return 'warn';
+    return 'under';
+  }
+  function weightStatusIsOver(status) {
+    return status === 'over' || status === 'critical';
+  }
+  function formatTonnes(kg, digits) {
+    if (!Number.isFinite(kg)) return '\u2013';
+    return (kg / 1000).toFixed(digits == null ? 2 : digits);
+  }
+  function setWeightStatus(text) {
+    if (elWeightStatus) elWeightStatus.textContent = text || '';
+  }
+  function topWeightFilterActive() {
+    return !!(elTopWeightOnly && elTopWeightOnly.checked);
+  }
+  function weightOverOnlyActive() {
+    return !!(elWeightOverOnly && elWeightOverOnly.checked);
+  }
+  function metricPassesWeightFilter(metric) {
+    if (metric.kind !== 'weight') return true;
+    if (weightOverOnlyActive() && !weightStatusIsOver(metric.weightStatus)) return false;
+    return true;
+  }
+
+  /**
+   * Ranks each vehicle's worst weight events by how far over its payload limit
+   * they went, so the five worst can be ring-fenced like speeding and idling.
+   */
+  function annotateMetricsWithWeight() {
+    var byVehicle = {};
+    var over = 0;
+    var peakPct = null;
+    var events = 0;
+    metricMapData.forEach(function (metric) {
+      metric.topWeightRank = null;
+      if (metric.kind !== 'weight') return;
+      events++;
+      if (weightStatusIsOver(metric.weightStatus)) over++;
+      if (Number.isFinite(metric.weightPct) && (peakPct == null || metric.weightPct > peakPct)) peakPct = metric.weightPct;
+      if (!metricPassesWeightFilter(metric)) return;
+      var key = metric.vehicleName || '';
+      if (!byVehicle[key]) byVehicle[key] = [];
+      byVehicle[key].push(metric);
+    });
+    Object.keys(byVehicle).forEach(function (key) {
+      byVehicle[key].sort(function (a, b) {
+        return (b.weightPct || 0) - (a.weightPct || 0) || (b.weightKg || 0) - (a.weightKg || 0);
+      }).slice(0, TOP_WEIGHT_PER_VEHICLE).forEach(function (metric, position) {
+        metric.topWeightRank = position + 1;
+      });
+    });
+    if (events) {
+      setWeightStatus(formatNumber(events) + ' weight event' + (events === 1 ? '' : 's') + ' \u2022 ' + formatNumber(over) + ' over the payload limit' + (peakPct == null ? '' : ' \u2022 worst ' + Math.round(peakPct) + '% of limit') + '.');
+    }
+  }
+
+  /**
+   * Weight legend rows: how much of the mapped load was over the limit, and how
+   * many ringed worst-overload markers are drawn.
+   */
+  function weightLegendRows() {
+    var weights = metricMapData.filter(function (metric) {
+      return metric.kind === 'weight' && metricPassesZoneFilter(metric) && metricPassesWeightFilter(metric);
+    });
+    if (!weights.length) return '';
+    var counts = {};
+    weights.forEach(function (metric) {
+      counts[metric.weightStatus] = (counts[metric.weightStatus] || 0) + 1;
+    });
+    var rows = Object.keys(WEIGHT_STATUS_LABELS).filter(function (status) {
+      return counts[status];
+    }).map(function (status) {
+      return '<span class="speed-band-row"><i style="--zone-color:' + WEIGHT_STATUS_COLORS[status] + '"></i>' + escapeHtml(WEIGHT_STATUS_LABELS[status]) + ' <b>' + formatNumber(counts[status]) + '</b></span>';
+    }).join('');
+    var ranked = weights.filter(function (metric) {
+      return metric.topWeightRank;
+    });
+    return '<strong class="speed-band-heading">Weight</strong>' + rows + '<span class="top-weight-row' + (topWeightFilterActive() ? ' is-only' : '') + '">Top ' + TOP_WEIGHT_PER_VEHICLE + ' overloads per vehicle <b>' + formatNumber(ranked.length) + '</b></span>';
+  }
+
+  /**
+   * Redraws weight presentation after a limit or filter change, without
+   * refetching anything from MyGeotab.
+   */
+  function refreshWeightPresentation() {
+    annotateMetricsWithWeight();
+    displayMetricLegend(metricMapData);
+    renderMetricMarkers();
+    updateMapEventTotal();
+    renderLiveVehicles();
+  }
   function setIdleCostStatus(text) {
     if (elIdleCostStatus) elIdleCostStatus.textContent = text || '';
   }
@@ -933,6 +1241,7 @@ geotab.addin.heatmap = function () {
     return !!(bands.length && selectedSpeedBands.length && selectedSpeedBands.length < bands.length);
   }
   function metricPassesBandFilter(metric) {
+    if (metric.kind === 'weight') return true;
     if (!speedBandFilterActive()) return true;
     if (metric.speedBand == null) return false;
     return selectedSpeedBands.indexOf(metric.speedBand) !== -1;
@@ -943,7 +1252,7 @@ geotab.addin.heatmap = function () {
    * @param {object} metric - A mapped exception event.
    */
   function metricPassesFilters(metric) {
-    return metricPassesZoneFilter(metric) && metricPassesBandFilter(metric) && metricPassesIdleDurationFilter(metric) && metricPassesRankFilters(metric);
+    return metricPassesZoneFilter(metric) && metricPassesBandFilter(metric) && metricPassesIdleDurationFilter(metric) && metricPassesWeightFilter(metric) && metricPassesRankFilters(metric);
   }
   function schoolZoneSpeedingCount() {
     return metricMapData.filter(function (metric) {
@@ -1212,9 +1521,9 @@ geotab.addin.heatmap = function () {
     });
     metricLegendControl.onAdd = function () {
       var element = L.DomUtil.create('div', 'metric-legend');
-      element.innerHTML = '<strong>Exception legend</strong>' + rules.map(function (rule) {
+      element.innerHTML = '<strong>' + (weightModeActive() ? 'Weight legend' : 'Exception legend') + '</strong>' + rules.map(function (rule) {
         return '<span>' + escapeHtml(rule.name) + ' <b>' + formatNumber(rule.count) + '</b></span>';
-      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.</small>';
+      }).join('') + speedBandLegendRows() + topSpeedingLegendRow() + idlingLegendRows() + weightLegendRows() + '<label class="metric-detail-toggle"><input type="checkbox"> Show event details</label>' + '<small>' + (weightModeActive() ? 'Marker fill is the vehicle colour and the ring shows how the load compares with the axle scale register; heat intensity follows the percentage of the payload limit.' : 'Event marker colours match the vehicle legend, their ring shows the Risk Management speed band, and speeding events also show the posted limit as a road sign. Heat colouring can be toggled separately in the Exceptions controls.') + '</small>';
       L.DomEvent.disableClickPropagation(element);
       var toggle = element.querySelector('input');
       toggle.checked = metricDetailsVisible;
@@ -1231,6 +1540,7 @@ geotab.addin.heatmap = function () {
    * numbers match what is drawn.
    */
   function speedBandLegendRows() {
+    if (weightModeActive()) return '';
     var bands = speedBands();
     if (!bands.length) return '';
     var rows = bands.map(function (band) {
@@ -1326,14 +1636,15 @@ geotab.addin.heatmap = function () {
       addSpeedLimitSign(metric, acceptedSignPoints);
       var zoneWord = metric.schoolZone && metric.schoolZone.isSchool ? 'school zone' : 'zone';
       var bandText = describeSpeedBand(metric);
-      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '') + (metric.topIdlingRank ? ' \u2022 #' + metric.topIdlingRank + ' costliest idling for this vehicle' : '');
-      var rank = metric.topSpeedingRank || metric.topIdlingRank;
+      var calloutText = metric.ruleName + " \u2192 " + metric.label + (metric.topWeightRank ? ' \u2022 #' + metric.topWeightRank + ' worst load for this vehicle' : '') + (metric.schoolZoneSpeeding ? ' (' + zoneWord + ')' : '') + (bandText && metric.speedBand > 0 ? ' \u2022 band ' + metric.speedBand : '') + (metric.topSpeedingRank ? ' \u2022 #' + metric.topSpeedingRank + ' fastest for this vehicle' : '') + (metric.topIdlingRank ? ' \u2022 #' + metric.topIdlingRank + ' costliest idling for this vehicle' : '');
+      var rank = metric.topSpeedingRank || metric.topIdlingRank || metric.topWeightRank;
       var popupHtml = metric.popup + (metric.topSpeedingRank ? '<br><span class="top-speeding-flag">#' + metric.topSpeedingRank + ' fastest speeding event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + '</span>' : '') + (metric.kind === 'idle' ? '<br><span class="idling-flag">' + (metric.topIdlingRank ? '#' + metric.topIdlingRank + ' costliest idling event for ' + escapeHtml(metric.vehicleName || 'this vehicle') + ' \u2014 ' : '') + Math.round(metric.idleMinutes || 0) + ' min idling \u2022 ' + (metric.idleLitres || 0).toFixed(1) + ' L \u2022 $' + (metric.idleCost || 0).toFixed(2) + ' at ' + idleFuelBurn() + ' L/h and $' + idleFuelPrice().toFixed(2) + '/L</span>' : '') + (bandText ? '<br><span class="speed-band-flag">' + escapeHtml(bandText) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '') + (metric.schoolZone ? '<br><span class="school-zone-flag">' + (metric.schoolZoneSpeeding ? 'Over the ' + zoneWord + ' limit' : 'Inside a ' + zoneWord) + ': ' + escapeHtml(describeSchoolZone(metric.schoolZone)) + (Number.isFinite(metric.vehicleSpeed) ? ' \u2014 vehicle ' + metric.vehicleSpeed + ' km/h' : '') + '</span>' : '');
-      var bandRing = metric.speedBand > 0 ? speedBandByIndex(metric.speedBand) : null;
+      var bandRing = metric.speedBand > 0 && metric.kind !== 'weight' ? speedBandByIndex(metric.speedBand) : null;
+      var weightRing = metric.kind === 'weight' ? WEIGHT_STATUS_COLORS[metric.weightStatus] || null : null;
       var dot = L.circleMarker([metric.lat, metric.lon], {
-        radius: rank ? 7 : bandRing ? 5 : 4,
-        color: bandRing ? bandRing.color : metric.topSpeedingRank ? '#ffd166' : metric.topIdlingRank ? '#4fc3f7' : '#ffffff',
-        weight: rank ? 3 : bandRing ? 2 : 1,
+        radius: rank ? 7 : bandRing || weightRing ? 5 : 4,
+        color: weightRing ? weightRing : bandRing ? bandRing.color : metric.topSpeedingRank ? '#ffd166' : metric.topIdlingRank ? '#4fc3f7' : '#ffffff',
+        weight: rank ? 3 : bandRing || weightRing ? 2 : 1,
         fillColor: metric.color,
         fillOpacity: 0.95
       });
@@ -1368,8 +1679,8 @@ geotab.addin.heatmap = function () {
       }
       var marker = L.marker(labelLatLng, {
         icon: L.divIcon({
-          className: 'event-metric-marker event-metric-' + metric.kind + (metric.topSpeedingRank ? ' is-top-speeding' : '') + (metric.topIdlingRank ? ' is-top-idling' : ''),
-          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + (rank ? '<b class="' + (metric.topSpeedingRank ? 'top-speeding-rank' : 'top-idling-rank') + '">#' + rank + '</b>' : '') + '</span>',
+          className: 'event-metric-marker event-metric-' + metric.kind + (metric.topSpeedingRank ? ' is-top-speeding' : '') + (metric.topIdlingRank ? ' is-top-idling' : '') + (metric.topWeightRank ? ' is-top-weight' : ''),
+          html: '<span style="--rule-color:' + metric.color + "\">\u2192 " + escapeHtml(metric.label) + (metric.schoolZoneSpeeding ? ' \uD83C\uDFEB' : '') + (rank ? '<b class="' + (metric.topSpeedingRank ? 'top-speeding-rank' : metric.topIdlingRank ? 'top-idling-rank' : 'top-weight-rank') + '">#' + rank + '</b>' : '') + '</span>',
           iconSize: [70, 30],
           iconAnchor: [8, 15]
         })
@@ -1389,6 +1700,7 @@ geotab.addin.heatmap = function () {
     annotateMetricsWithSpeedBands();
     annotateMetricsWithTopSpeeding();
     annotateMetricsWithIdling();
+    annotateMetricsWithWeight();
     displayMetricLegend(metrics);
     displaySchoolZoneLegend();
     renderMetricMarkers();
@@ -1886,10 +2198,12 @@ geotab.addin.heatmap = function () {
     rememberSelectedVehiclesInLegend();
     displayVehicleLegend();
     startTime = new Date();
-    if (elExceptionTypes.disabled === true) {
-      displayHeatMapForLocationHistory();
-    } else {
+    if (weightModeActive()) {
+      displayWeightHistoryMap();
+    } else if (exceptionModeActive()) {
       displayHeatMapForExceptionHistory();
+    } else {
+      displayHeatMapForLocationHistory();
     }
   };
 
@@ -2444,7 +2758,7 @@ geotab.addin.heatmap = function () {
   // System Settings configuration, so an outdated page can be served alongside
   // the current script. Reporting the missing ids makes that visible instead of
   // leaving a loaded but inert Add-In.
-  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'speedingRules', 'idlingRules', 'idleMinMinutes', 'idleFuelBurn', 'idleFuelPrice', 'topIdlingOnly', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory'];
+  var requiredElementIds = ['heatmap', 'heatmap-map', 'exceptionTypes', 'speedingRules', 'idlingRules', 'idleMinMinutes', 'idleFuelBurn', 'idleFuelPrice', 'topIdlingOnly', 'showExceptionHeatMap', 'showSchoolZones', 'speedZoneCategories', 'schoolZonesOnly', 'eventsInZonesOnly', 'groupTypes', 'vehicleGroups', 'vehicles', 'zoneTypes', 'zones', 'from', 'to', 'showHeatMap', 'refreshAddIn', 'error', 'message', 'loading', 'map-event-total', 'visualizeByLocationHistory', 'visualizeByExceptionHistory', 'visualizeByWeightHistory', 'weightFallbackTonnes', 'weightWarnPct', 'weightOverOnly', 'topWeightOnly', 'liveMonitor', 'liveInterval', 'liveSpeedThreshold', 'liveAlerts'];
   var reportUnsupportedPage = function reportUnsupportedPage(missingIds) {
     var message = 'This Heat Map page is out of date and is missing: ' + missingIds.join(', ') + '. Update the MyGeotab Add-In configuration URL to the current Heat Map page, then reload.';
     var banner = document.createElement('div');
@@ -2488,6 +2802,553 @@ geotab.addin.heatmap = function () {
       });
     }
   };
+
+  /**
+   * The cargo weight diagnostic is resolved by name so each database uses its
+   * own diagnostic id, and the result is kept for the session.
+   * @returns {Promise} Resolves with the diagnostic id, or null when the
+   * database has no cargo weight diagnostic.
+   */
+  function resolveWeightDiagnostic() {
+    if (weightDiagnosticId) return Promise.resolve(weightDiagnosticId);
+    return new Promise(function (resolve) {
+      api.call('Get', {
+        typeName: 'Diagnostic',
+        search: { name: WEIGHT_DIAGNOSTIC_SEARCH },
+        resultsLimit: 10
+      }, function (diagnostics) {
+        var match = (diagnostics || [])[0];
+        weightDiagnosticId = match && match.id ? match.id : null;
+        resolve(weightDiagnosticId);
+      }, function () {
+        resolve(null);
+      });
+    });
+  }
+
+  /**
+   * StatusData is read in windows: Get gives no ordering guarantee, so a single
+   * window large enough to hit the results limit could silently discard the
+   * newest readings.
+   * @param {Date} from - Start of the range.
+   * @param {Date} to - End of the range.
+   */
+  function weightWindows(from, to) {
+    var windows = [];
+    var cursor = from.getTime();
+    var end = to.getTime();
+    var span = WEIGHT_WINDOW_HOURS * 3600000;
+    while (cursor < end && windows.length < WEIGHT_MAX_WINDOWS) {
+      var next = Math.min(cursor + span, end);
+      windows.push([new Date(cursor), new Date(next)]);
+      cursor = next;
+    }
+    return windows;
+  }
+
+  /**
+   * Locates a weight reading by the closest GPS record in time. Readings with
+   * no position within the tolerance cannot be mapped.
+   * @param {Array} logs - The device's GPS records, ascending by time.
+   * @param {number} stamp - The reading's timestamp in milliseconds.
+   */
+  function nearestLogRecord(logs, stamp) {
+    var best = null;
+    var bestGap = Infinity;
+    for (var i = 0; i < logs.length; i++) {
+      var gap = Math.abs(new Date(logs[i].dateTime).getTime() - stamp);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = logs[i];
+      } else if (gap > bestGap && bestGap < WEIGHT_MATCH_TOLERANCE_MS) {
+        break;
+      }
+    }
+    return bestGap <= WEIGHT_MATCH_TOLERANCE_MS ? best : null;
+  }
+
+  /**
+   * Consecutive readings at or above the warning level become one event, so a
+   * vehicle sitting loaded for an hour is one overload rather than hundreds of
+   * markers. The event carries the run's peak weight and its duration.
+   * @param {object} vehicle - {id, name, color}.
+   * @param {Array} readings - {stamp, kg} sorted ascending.
+   * @param {Array} logs - The device's GPS records.
+   */
+  function buildWeightMetrics(vehicle, readings, logs) {
+    var limits = weightLimitsFor(vehicle.name);
+    var warnKg = limits.alertKg == null ? null : limits.alertKg * (weightWarnPct() / 100);
+    var metrics = [];
+    var run = null;
+    var flush = function flush() {
+      if (!run) return;
+      var log = nearestLogRecord(logs, run.peakStamp);
+      if (log && Number.isFinite(run.kg)) {
+        var status = classifyWeight(run.kg, limits);
+        var pct = limits.alertKg ? run.kg / limits.alertKg * 100 : null;
+        var register = limits.register;
+        var durationMs = Math.max(0, run.lastStamp - run.firstStamp);
+        metrics.push({
+          lat: Number(log.latitude),
+          lon: Number(log.longitude),
+          kind: 'weight',
+          label: formatTonnes(run.kg) + ' t' + (pct == null ? '' : ' \u2022 ' + Math.round(pct) + '%'),
+          ruleName: WEIGHT_STATUS_LABELS[status] || 'Cargo weight',
+          vehicleName: vehicle.name,
+          color: vehicle.color,
+          startTime: new Date(run.firstStamp).toISOString(),
+          durationMs: durationMs,
+          weightKg: run.kg,
+          weightPct: pct,
+          weightStatus: status,
+          weightLimitKg: limits.alertKg,
+          weightCriticalKg: limits.criticalKg,
+          weightSource: limits.source,
+          weightRego: register ? register.rego : null,
+          weightAxles: register ? register.axles : null,
+          weightReadings: run.count,
+          speedLimit: null,
+          vehicleSpeed: null,
+          popup: '<strong>' + escapeHtml(vehicle.name) + (register ? ' \u2014 ' + escapeHtml(register.rego) + ' \u2022 ' + escapeHtml(register.axles) : '') + '</strong><br>' + 'Cargo: <span class="weight-' + status + '">' + formatTonnes(run.kg) + ' t</span>' + (pct == null ? '' : ' \u2014 ' + Math.round(pct) + '% of limit') + '<br>' + escapeHtml(WEIGHT_STATUS_LABELS[status] || '') + '<br>' + (register ? 'Tare ' + formatTonnes(register.tare) + ' t \u2022 GML ' + formatTonnes(register.gml, 1) + ' t \u2022 GVM ' + formatTonnes(register.gvm, 1) + ' t<br>Payload limit ' + formatTonnes(register.payload) + ' t (GML)' + (limits.criticalKg ? ' \u2022 ' + formatTonnes(limits.criticalKg) + ' t (GVM)' : '') : 'Not in the axle scale register \u2014 using the fallback limit of ' + formatTonnes(limits.alertKg) + ' t') + '<br>' + formatNumber(run.count) + ' reading' + (run.count === 1 ? '' : 's') + ' over ' + formatDuration(durationMs) + '<br>' + escapeHtml(new Date(run.firstStamp).toLocaleString())
+        });
+      }
+      run = null;
+    };
+    readings.forEach(function (reading) {
+      var interesting = warnKg == null ? true : reading.kg >= warnKg;
+      if (!interesting) {
+        flush();
+        return;
+      }
+      if (run && reading.stamp - run.lastStamp > WEIGHT_RUN_GAP_MS) flush();
+      if (!run) {
+        run = {
+          kg: reading.kg,
+          peakStamp: reading.stamp,
+          firstStamp: reading.stamp,
+          lastStamp: reading.stamp,
+          count: 0
+        };
+      }
+      if (reading.kg > run.kg) {
+        run.kg = reading.kg;
+        run.peakStamp = reading.stamp;
+      }
+      run.lastStamp = reading.stamp;
+      run.count++;
+    });
+    flush();
+    return metrics;
+  }
+
+  /**
+   * Maps the cargo weight recorded over the selected range against the axle
+   * scale register.
+   */
+  var displayWeightHistoryMap = function displayWeightHistoryMap() {
+    var vehicles = [];
+    for (var i = 0; i < elVehicles.options.length; i++) {
+      var option = elVehicles.options[i];
+      if (option.selected) {
+        vehicles.push({
+          id: option.value || option.text,
+          name: option.text,
+          color: colorForVehicleId(option.value || option.text)
+        });
+      }
+    }
+    var fromValue = elDateFromInput.value;
+    var toValue = elDateToInput.value;
+    errorHandler('');
+    messageHandler('');
+    if (!vehicles.length || fromValue === '' || toValue === '') {
+      errorHandler('Select at least one vehicle and a date range.');
+      return;
+    }
+    var from = new Date(fromValue);
+    var to = new Date(toValue);
+    var windows = weightWindows(from, to);
+    if (!windows.length) {
+      errorHandler('Select a date range that ends after it starts.');
+      return;
+    }
+    if (vehicles.length * windows.length > 400) {
+      errorHandler('Select fewer vehicles or a shorter date range: ' + formatNumber(vehicles.length * windows.length) + ' weight requests would be needed.');
+      return;
+    }
+    toggleLoading(true);
+    resolveWeightDiagnostic().then(function (diagnosticId) {
+      if (!diagnosticId) {
+        errorHandler('This database has no cargo weight diagnostic, so weight history is unavailable.');
+        toggleLoading(false);
+        return;
+      }
+      var calls = [];
+      vehicles.forEach(function (vehicle) {
+        windows.forEach(function (window_) {
+          calls.push(['Get', {
+            typeName: 'StatusData',
+            resultsLimit: WEIGHT_RESULTS_LIMIT,
+            search: {
+              deviceSearch: { id: vehicle.id },
+              diagnosticSearch: { id: diagnosticId },
+              fromDate: window_[0].toISOString(),
+              toDate: window_[1].toISOString()
+            }
+          }]);
+        });
+      });
+      vehicles.forEach(function (vehicle) {
+        calls.push(['Get', {
+          typeName: 'LogRecord',
+          resultsLimit: myGeotabGetResultsLimit,
+          search: {
+            deviceSearch: { id: vehicle.id },
+            fromDate: from.toISOString(),
+            toDate: to.toISOString()
+          }
+        }]);
+      });
+      api.multiCall(calls, function (results) {
+        var statusCount = vehicles.length * windows.length;
+        var metrics = [];
+        var readingTotal = 0;
+        vehicles.forEach(function (vehicle, vehicleIndex) {
+          var readings = [];
+          for (var w = 0; w < windows.length; w++) {
+            (results[vehicleIndex * windows.length + w] || []).forEach(function (row) {
+              if (row.data === null || row.data === undefined) return;
+              var stamp = new Date(row.dateTime).getTime();
+              if (!Number.isFinite(stamp)) return;
+              // Cargo weight is reported in grams, as the weight dashboard reads it.
+              readings.push({ stamp: stamp, kg: Number(row.data) / 1000 });
+            });
+          }
+          readings.sort(function (a, b) {
+            return a.stamp - b.stamp;
+          });
+          readingTotal += readings.length;
+          var logs = validLogRecords(results[statusCount + vehicleIndex] || []).slice().sort(function (a, b) {
+            return new Date(a.dateTime) - new Date(b.dateTime);
+          });
+          metrics = metrics.concat(buildWeightMetrics(vehicle, readings, logs));
+        });
+        if (!metrics.length) {
+          resetHeatMapLayer();
+          displayMetricMarkers([]);
+          displayMetricLegend([]);
+          setWeightStatus(readingTotal ? formatNumber(readingTotal) + ' weight readings found, but none could be placed on the map or reached the warning level.' : 'No cargo weight readings were recorded for the selected vehicles and range.');
+          errorHandler(readingTotal ? 'No mappable weight events in this range.' : 'No cargo weight data to display.');
+          toggleLoading(false);
+          return;
+        }
+        var coordinates = metrics.map(function (metric) {
+          // Heat intensity follows how heavily loaded the vehicle was.
+          return {
+            lat: metric.lat,
+            lon: metric.lon,
+            value: metric.weightPct ? Math.max(1, metric.weightPct / 100) : 1
+          };
+        });
+        coordinates = filterPointsBySelectedZones(coordinates);
+        metrics = filterPointsBySelectedZones(metrics);
+        if (!coordinates.length) {
+          errorHandler('No weight events fall inside the selected zone(s).');
+          toggleLoading(false);
+          return;
+        }
+        setHeatMapPoints(coordinates);
+        map.fitBounds(coordinates.map(function (point) {
+          return new L.LatLng(point.lat, point.lon);
+        }));
+        heatMapLayer.setLatLngs(coordinates);
+        displayMetricMarkers(metrics);
+        updateMapEventTotal();
+        var over = metrics.filter(function (metric) {
+          return weightStatusIsOver(metric.weightStatus);
+        }).length;
+        var unregistered = vehicles.filter(function (vehicle) {
+          return !weightRegisterFor(vehicle.name);
+        }).length;
+        messageHandler('Displaying ' + formatNumber(metrics.length) + ' weight events (' + formatNumber(over) + ' over the payload limit) from ' + formatNumber(readingTotal) + ' cargo weight readings for the ' + formatNumber(vehicles.length) + ' selected vehicles. [' + getElapsedTimeSeconds() + ' sec]');
+        if (unregistered) {
+          errorHandler('Note: ' + formatNumber(unregistered) + ' selected vehicle' + (unregistered === 1 ? ' is' : 's are') + ' not in the axle scale register, so the fallback payload limit was used.');
+        }
+        toggleLoading(false);
+      }, function (error) {
+        errorHandler(error);
+        toggleLoading(false);
+      });
+    });
+  };
+
+  /**
+   * Live monitoring: current positions with speed, payload and new-exception
+   * alerts. MyGeotab exposes no push channel to an add-in, so this polls.
+   */
+  function liveMonitorEnabled() {
+    return !!(elLiveMonitor && elLiveMonitor.checked);
+  }
+  function liveSpeedThreshold() {
+    return positiveNumber(elLiveSpeedThreshold && elLiveSpeedThreshold.value, 0);
+  }
+  function setLiveStatus(text, isError) {
+    if (!elLiveStatus) return;
+    elLiveStatus.textContent = text || '';
+    elLiveStatus.classList.toggle('is-error', !!isError);
+  }
+  function liveIntervalMs() {
+    return positiveNumber(elLiveInterval && elLiveInterval.value, 60) * 1000;
+  }
+
+  /**
+   * Restarts the poll timer. Polling is suspended while the tab is hidden so a
+   * backgrounded add-in does not keep querying the fleet.
+   */
+  function applyLiveMonitor() {
+    if (liveTimer) {
+      clearInterval(liveTimer);
+      liveTimer = null;
+    }
+    if (!liveMonitorEnabled()) {
+      clearLiveLayer();
+      setLiveStatus('');
+      return;
+    }
+    if (document.hidden) {
+      setLiveStatus('Live monitor paused while this tab is hidden.');
+      return;
+    }
+    pollLiveData();
+    liveTimer = setInterval(pollLiveData, liveIntervalMs());
+  }
+  function clearLiveLayer() {
+    if (liveLayer) {
+      map.removeLayer(liveLayer);
+      liveLayer = null;
+    }
+    liveVehicles = [];
+    renderLiveAlertList();
+  }
+
+  /**
+   * One poll: current positions, recent cargo weight, and any new exceptions
+   * for the selected rules from the exception feed.
+   */
+  function pollLiveData() {
+    if (!api || liveLoading || !liveMonitorEnabled() || document.hidden) return;
+    liveLoading = true;
+    setLiveStatus('Refreshing live positions\u2026');
+    var wantWeight = !!(elLiveWeightAlerts && elLiveWeightAlerts.checked);
+    var wantExceptions = !!(elLiveExceptionAlerts && elLiveExceptionAlerts.checked) && selectedExceptionRules().length > 0;
+    resolveWeightDiagnostic().then(function (diagnosticId) {
+      var calls = [['Get', { typeName: 'DeviceStatusInfo' }]];
+      var weightIndex = -1;
+      var feedIndex = -1;
+      if (wantWeight && diagnosticId) {
+        weightIndex = calls.length;
+        calls.push(['Get', {
+          typeName: 'StatusData',
+          resultsLimit: WEIGHT_RESULTS_LIMIT,
+          search: {
+            diagnosticSearch: { id: diagnosticId },
+            fromDate: new Date(Date.now() - LIVE_WEIGHT_LOOKBACK_MS).toISOString(),
+            toDate: new Date().toISOString()
+          }
+        }]);
+      }
+      if (wantExceptions) {
+        feedIndex = calls.length;
+        // The feed's version cursor guarantees no event is missed or repeated;
+        // a from date only seeds the very first poll.
+        var feedRequest = { typeName: 'ExceptionEvent', resultsLimit: 1000 };
+        if (liveFeedVersion) {
+          feedRequest.fromVersion = liveFeedVersion;
+        } else {
+          feedRequest.search = { fromDate: new Date(Date.now() - LIVE_EXCEPTION_ALERT_MS).toISOString() };
+        }
+        calls.push(['GetFeed', feedRequest]);
+      }
+      api.multiCall(calls, function (results) {
+        applyLiveResults(results[0] || [], weightIndex === -1 ? [] : results[weightIndex] || [], feedIndex === -1 ? null : results[feedIndex]);
+        liveLoading = false;
+      }, function (error) {
+        liveLoading = false;
+        setLiveStatus('Live monitor failed: ' + (error && error.message ? error.message : error), true);
+      });
+    });
+  }
+
+  /**
+   * Turns a poll's results into live vehicles and alerts.
+   * @param {Array} statusInfos - DeviceStatusInfo rows.
+   * @param {Array} weightRows - Recent cargo weight StatusData rows.
+   * @param {object} feed - The ExceptionEvent feed result, when requested.
+   */
+  function applyLiveResults(statusInfos, weightRows, feed) {
+    var nameById = {};
+    allVehicles.forEach(function (vehicle) {
+      nameById[vehicle.id] = vehicle.name || vehicle.id;
+    });
+    var selectedIds = selectedValues(elVehicles);
+    var latestWeight = {};
+    (weightRows || []).forEach(function (row) {
+      if (row.data === null || row.data === undefined || !row.device || !row.device.id) return;
+      var stamp = new Date(row.dateTime).getTime();
+      if (!Number.isFinite(stamp)) return;
+      var current = latestWeight[row.device.id];
+      if (!current || stamp > current.stamp) latestWeight[row.device.id] = { stamp: stamp, kg: Number(row.data) / 1000 };
+    });
+    if (feed) {
+      if (feed.toVersion) liveFeedVersion = feed.toVersion;
+      var ruleIds = {};
+      selectedExceptionRules().forEach(function (rule) {
+        ruleIds[rule.id] = rule.name;
+      });
+      (feed.data || []).forEach(function (event) {
+        var ruleId = event.rule && event.rule.id;
+        var deviceId = event.device && event.device.id;
+        if (!ruleId || !deviceId || !ruleIds[ruleId]) return;
+        if (!nameById[deviceId]) return;
+        var stamp = new Date(event.activeTo || event.activeFrom).getTime();
+        if (!Number.isFinite(stamp) || Date.now() - stamp > LIVE_EXCEPTION_ALERT_MS) return;
+        liveExceptionsByDevice[deviceId] = { stamp: stamp, rule: ruleIds[ruleId] };
+        pushLiveAlert({
+          stamp: stamp,
+          vehicle: nameById[deviceId] || deviceId,
+          kind: 'exception',
+          text: ruleIds[ruleId]
+        });
+      });
+    }
+    var threshold = liveSpeedThreshold();
+    liveVehicles = (statusInfos || []).filter(function (info) {
+      var deviceId = info && info.device && info.device.id;
+      if (!deviceId || !nameById[deviceId]) return false;
+      if (selectedIds.length && selectedIds.indexOf(deviceId) === -1) return false;
+      return Number.isFinite(Number(info.latitude)) && Number.isFinite(Number(info.longitude)) && !(Number(info.latitude) === 0 && Number(info.longitude) === 0);
+    }).map(function (info) {
+      var deviceId = info.device.id;
+      var name = nameById[deviceId];
+      var limits = weightLimitsFor(name);
+      var weight = latestWeight[deviceId];
+      var weightStatus = weight ? classifyWeight(weight.kg, limits) : null;
+      var speed = Math.round(Number(info.speed) || 0);
+      var recentException = liveExceptionsByDevice[deviceId];
+      if (recentException && Date.now() - recentException.stamp > LIVE_EXCEPTION_ALERT_MS) recentException = null;
+      var alerts = [];
+      if (threshold && speed >= threshold) alerts.push({ kind: 'speed', text: speed + ' km/h (over ' + threshold + ')' });
+      if (weightStatus && weightStatusIsOver(weightStatus)) alerts.push({ kind: 'weight', text: formatTonnes(weight.kg) + ' t \u2014 ' + WEIGHT_STATUS_LABELS[weightStatus] });
+      if (recentException) alerts.push({ kind: 'exception', text: recentException.rule });
+      return {
+        id: deviceId,
+        name: name,
+        lat: Number(info.latitude),
+        lon: Number(info.longitude),
+        speed: speed,
+        driving: !!info.isDriving,
+        weightKg: weight ? weight.kg : null,
+        weightStamp: weight ? weight.stamp : null,
+        weightStatus: weightStatus,
+        limits: limits,
+        alerts: alerts,
+        color: colorForVehicleId(deviceId)
+      };
+    });
+    liveVehicles.forEach(function (vehicle) {
+      vehicle.alerts.forEach(function (alert) {
+        if (alert.kind === 'exception') return;
+        pushLiveAlert({ stamp: Date.now(), vehicle: vehicle.name, kind: alert.kind, text: alert.text });
+      });
+    });
+    renderLiveVehicles();
+    var alerting = liveVehicles.filter(function (vehicle) {
+      return vehicle.alerts.length;
+    }).length;
+    setLiveStatus(formatNumber(liveVehicles.length) + ' vehicles live \u2022 ' + formatNumber(alerting) + ' alerting \u2022 updated ' + new Date().toLocaleTimeString() + ' \u2022 next in ' + Math.round(liveIntervalMs() / 1000) + ' s', alerting > 0);
+  }
+
+  /**
+   * Keeps one entry per vehicle and alert kind so a vehicle held over its limit
+   * does not flood the list on every poll.
+   * @param {object} alert - {stamp, vehicle, kind, text}.
+   */
+  function pushLiveAlert(alert) {
+    var existing = liveAlertLog.filter(function (entry) {
+      return entry.vehicle === alert.vehicle && entry.kind === alert.kind;
+    })[0];
+    if (existing) {
+      existing.stamp = alert.stamp;
+      existing.text = alert.text;
+      existing.count = (existing.count || 1) + 1;
+    } else {
+      alert.count = 1;
+      liveAlertLog.push(alert);
+    }
+    liveAlertLog.sort(function (a, b) {
+      return b.stamp - a.stamp;
+    });
+    liveAlertLog = liveAlertLog.slice(0, LIVE_MAX_ALERTS);
+    renderLiveAlertList();
+  }
+  function renderLiveAlertList() {
+    if (!elLiveAlerts) return;
+    if (!liveMonitorEnabled() || !liveAlertLog.length) {
+      elLiveAlerts.innerHTML = liveMonitorEnabled() ? '<li class="live-alert-empty">No alerts yet.</li>' : '';
+      return;
+    }
+    elLiveAlerts.innerHTML = liveAlertLog.map(function (alert) {
+      return '<li class="live-alert live-alert-' + alert.kind + '"><b>' + escapeHtml(alert.vehicle) + '</b> ' + escapeHtml(alert.text) + '<small>' + new Date(alert.stamp).toLocaleTimeString() + (alert.count > 1 ? ' \u00b7 ' + alert.count + '\u00d7' : '') + '</small></li>';
+    }).join('');
+  }
+
+  /**
+   * Live vehicles sit in their own layer so historical results stay on the map
+   * underneath them.
+   */
+  function renderLiveVehicles() {
+    if (!map) return;
+    if (liveLayer) map.removeLayer(liveLayer);
+    if (!liveMonitorEnabled() || !liveVehicles.length) {
+      liveLayer = null;
+      return;
+    }
+    liveLayer = L.layerGroup().addTo(map);
+    var alertsOnly = !!(elLiveAlertsOnly && elLiveAlertsOnly.checked);
+    liveVehicles.forEach(function (vehicle) {
+      var alerting = vehicle.alerts.length > 0;
+      if (alertsOnly && !alerting) return;
+      var ring = alerting ? vehicle.alerts[0].kind === 'weight' ? WEIGHT_STATUS_COLORS[vehicle.weightStatus] || '#d32f2f' : '#d32f2f' : '#ffffff';
+      var marker = L.circleMarker([vehicle.lat, vehicle.lon], {
+        radius: alerting ? 10 : 7,
+        color: ring,
+        weight: alerting ? 3 : 2,
+        fillColor: vehicle.color,
+        fillOpacity: 0.95,
+        className: alerting ? 'live-vehicle is-alerting' : 'live-vehicle'
+      });
+      marker.bindTooltip(vehicle.name + ' \u2022 ' + (vehicle.driving ? vehicle.speed + ' km/h' : 'stopped') + (alerting ? ' \u2022 ' + vehicle.alerts[0].text : ''), {
+        direction: 'top',
+        offset: [0, -6]
+      });
+      marker.bindPopup('<strong>' + escapeHtml(vehicle.name) + '</strong><br>' + (vehicle.driving ? 'Driving \u2022 ' + vehicle.speed + ' km/h' : 'Stopped') + '<br>' + (vehicle.weightKg == null ? 'No cargo weight in the last hour' : 'Cargo ' + formatTonnes(vehicle.weightKg) + ' t' + (vehicle.limits.alertKg ? ' \u2014 ' + Math.round(vehicle.weightKg / vehicle.limits.alertKg * 100) + '% of limit' : '') + '<br>' + escapeHtml(WEIGHT_STATUS_LABELS[vehicle.weightStatus] || '')) + (vehicle.alerts.length ? '<br><span class="live-alert-flag">' + vehicle.alerts.map(function (alert) {
+        return escapeHtml(alert.text);
+      }).join('<br>') + '</span>' : ''));
+      marker.addTo(liveLayer);
+      if (alerting) {
+        L.marker([vehicle.lat, vehicle.lon], {
+          icon: L.divIcon({
+            className: 'live-vehicle-label',
+            html: '<span>' + escapeHtml(vehicle.name) + '</span>',
+            iconSize: [90, 20],
+            iconAnchor: [-8, 10]
+          }),
+          interactive: false
+        }).addTo(liveLayer);
+      }
+    });
+  }
+
   var initializeInterface = function initializeInterface(coords) {
     var missingIds = requiredElementIds.filter(function (id) {
       return !document.getElementById(id);
@@ -2531,6 +3392,19 @@ geotab.addin.heatmap = function () {
     elIdleFuelPrice = document.getElementById('idleFuelPrice');
     elTopIdlingOnly = document.getElementById('topIdlingOnly');
     elIdleCostStatus = document.getElementById('idleCostStatus');
+    elWeightFallbackTonnes = document.getElementById('weightFallbackTonnes');
+    elWeightWarnPct = document.getElementById('weightWarnPct');
+    elWeightOverOnly = document.getElementById('weightOverOnly');
+    elTopWeightOnly = document.getElementById('topWeightOnly');
+    elWeightStatus = document.getElementById('weightStatus');
+    elLiveMonitor = document.getElementById('liveMonitor');
+    elLiveInterval = document.getElementById('liveInterval');
+    elLiveSpeedThreshold = document.getElementById('liveSpeedThreshold');
+    elLiveWeightAlerts = document.getElementById('liveWeightAlerts');
+    elLiveExceptionAlerts = document.getElementById('liveExceptionAlerts');
+    elLiveAlertsOnly = document.getElementById('liveAlertsOnly');
+    elLiveAlerts = document.getElementById('liveAlerts');
+    elLiveStatus = document.getElementById('liveStatus');
     ruleDropdown = enhanceMultiSelect(elExceptionTypes, 'Select rules');
     speedingRuleDropdown = enhanceMultiSelect(elSpeedingRules, 'Select speeding rules');
     idlingRuleDropdown = enhanceMultiSelect(elIdlingRules, 'Select idling rules');
@@ -2619,12 +3493,40 @@ geotab.addin.heatmap = function () {
       syncHeatMapVisibility();
       updateMapEventTotal();
     };
+    var setWeightControlsEnabled = function setWeightControlsEnabled(enabled) {
+      [elWeightFallbackTonnes, elWeightWarnPct, elWeightOverOnly, elTopWeightOnly].forEach(function (element) {
+        if (element) element.disabled = !enabled;
+      });
+      var section = document.getElementById('weightSection');
+      if (section) section.classList.toggle('is-inactive', !enabled);
+    };
     document.getElementById('visualizeByLocationHistory').addEventListener('click', function (event) {
       setExceptionControlsEnabled(false);
+      setWeightControlsEnabled(false);
     });
     document.getElementById('visualizeByExceptionHistory').addEventListener('click', function (event) {
       setExceptionControlsEnabled(true);
+      setWeightControlsEnabled(false);
     });
+    var elWeightMode = document.getElementById('visualizeByWeightHistory');
+    if (elWeightMode) elWeightMode.addEventListener('click', function (event) {
+      setExceptionControlsEnabled(false);
+      setWeightControlsEnabled(true);
+    });
+    setWeightControlsEnabled(false);
+    [elWeightFallbackTonnes, elWeightWarnPct, elWeightOverOnly, elTopWeightOnly].forEach(function (element) {
+      if (element) element.addEventListener('change', refreshWeightPresentation);
+    });
+    setWeightStatus('Cargo weight is compared with the axle scale register: over the GML payload is an overload, over the GVM payload is critical. Vehicles missing from the register use the fallback limit.');
+    if (elLiveMonitor) elLiveMonitor.addEventListener('change', applyLiveMonitor);
+    if (elLiveInterval) elLiveInterval.addEventListener('change', applyLiveMonitor);
+    [elLiveSpeedThreshold, elLiveWeightAlerts, elLiveExceptionAlerts].forEach(function (element) {
+      if (element) element.addEventListener('change', function () {
+        if (liveMonitorEnabled()) pollLiveData();
+      });
+    });
+    if (elLiveAlertsOnly) elLiveAlertsOnly.addEventListener('change', renderLiveVehicles);
+    document.addEventListener('visibilitychange', applyLiveMonitor);
     elShowExceptionHeatMap.addEventListener('change', syncHeatMapVisibility);
     if (elShowSchoolZones) elShowSchoolZones.addEventListener('change', syncSchoolZoneVisibility);
     if (elSchoolZonesOnly) elSchoolZonesOnly.addEventListener('change', function () {
@@ -2844,10 +3746,15 @@ geotab.addin.heatmap = function () {
       setTimeout(function () {
         fitToViewport();
         map.invalidateSize();
+        applyLiveMonitor();
       }, 200);
     },
     blur: function blur() {
-      // No active timers or subscriptions need cleanup.
+      // Live polling must not continue while another MyGeotab page is open.
+      if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+      }
     }
   };
 };

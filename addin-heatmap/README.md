@@ -2,7 +2,7 @@
 
 Heat Map is a MyGeotab Add-In for visualizing vehicle location history and rule violations on an interactive Leaflet heat map. The heat layer remains the primary view, while rule-specific event markers and measurements are available through an optional detail overlay.
 
-Current version: **1.0.39**
+Current version: **1.0.41**
 
 ## Features
 
@@ -17,6 +17,8 @@ Current version: **1.0.39**
 - A top bar holding the date range, quick ranges, the action buttons, the status line, and the event totals readout.
 - A single-page layout that fits the viewport: only the controls column scrolls, and the map fills the remaining height.
 - An optional **Show speed limit zones** overlay of the NZTA speed limit zones, selectable by posted limit (10&ndash;110 km/h), which flags events that exceed the limit of the zone they fall inside and can restrict the mapped events to those zones.
+- A **Weight History** mode that maps recorded cargo weight against the axle scale register.
+- A **Live monitor** that polls current vehicle positions on the same map and flags speed, payload and new-exception alerts.
 - A progress bar centred over the map while data loads.
 - Daily browser caching and spatial compaction for faster repeat queries.
 - TDG Environmental branding.
@@ -45,6 +47,25 @@ Ticking **Show speed limit zones** overlays the zones published in the [NZTA Nat
 - Variable zones publish their reduced limit as the minimum value (for example the 40 km/h school-hours limit inside a 50 km/h street), so that value is what zone speeding is measured against. The register does not expose machine-readable operating hours, so an event is flagged on location and speed alone — the tooltip shows the posted period so it can be checked before acting on the event.
 - The zone data is fetched from `services.arcgis.com` at runtime. If a browser or network policy blocks that host, the control reports the failure and the rest of the Add-In continues to work.
 
+## Weight History
+
+Weight History is the third **Visualize by** mode. For the selected vehicles and date range it reads the cargo weight diagnostic (`StatusData`, resolved by the diagnostic named like `%cargo weight%`) in six-hour windows, and places each reading on the map using the nearest `LogRecord` position within five minutes.
+
+- Consecutive readings at or above the warning level become a single weight event carrying the peak weight, the reading count and the duration, so a loaded vehicle is one marker rather than hundreds.
+- Limits come from `scripts/weight-register.js`, keyed on the asset name with punctuation removed: the GML payload is the alert limit and `GVM - tare` is the critical limit. Vehicles missing from the register use the **Fallback payload limit**, and the status line names how many vehicles that applied to.
+- **Warn at %** sets how close to the limit counts as approaching it (80% by default).
+- Each vehicle's five worst loads (by percentage of limit) carry a `#1`&ndash;`#5` badge and a highlighted ring, and **Only the top 5 overloads per vehicle** narrows the map, totals, legend and printed table to those.
+- The printed report gains **Cargo** and **% of limit** columns, plus peak cargo per vehicle in the summary table.
+- The register ships as a file in the bundle, so it must be re-uploaded when the register changes.
+
+## Live Monitor
+
+Live monitoring is a separate section that draws on the same Leaflet map in its own layer, so historical results stay visible underneath it. MyGeotab exposes no push channel to an Add-In, so this polls: freshness is bounded by the chosen interval (30 seconds to 5 minutes), not instant.
+
+- Positions and speeds come from `DeviceStatusInfo`, live cargo weight from the last hour of the weight diagnostic, and new exceptions from `GetFeed` on `ExceptionEvent`, which uses the feed's version cursor so no event is missed or repeated.
+- A vehicle alerts when it is at or above the **Alert over km/h** threshold, over its payload limit, or has raised an exception for the selected rules in the last 15 minutes. Alerting markers pulse, are labelled, and are listed with their time; **Show alerting vehicles only** hides the rest.
+- Polling stops while the browser tab is hidden and when the Add-In loses focus, and resumes on focus.
+
 ## Installation
 
 In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if required, and add this configuration:
@@ -53,7 +74,7 @@ In MyGeotab, open **System Settings → Add-Ins**, enable unsigned Add-Ins if re
 {
   "name": "Heat Map",
   "supportEmail": "francis@directt.co.nz",
-  "version": "1.0.39",
+  "version": "1.0.41",
   "items": [
     {
       "url": "https://kikorangee.github.io/sdk-addin-samples/addin-heatmap/dist/heatmap31.html",

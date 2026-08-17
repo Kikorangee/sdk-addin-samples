@@ -10,9 +10,10 @@
 
   <link rel="stylesheet" href="styles/vendor.css">
   <link rel="stylesheet" href="styles/spinner.css">
-  <link rel="stylesheet" href="styles/main.css?v=1.0.39">
+  <link rel="stylesheet" href="styles/main.css?v=1.0.41">
   <script src="scripts/vendor.js"></script>
-  <script src="scripts/main.js?v=1.0.39"></script>
+  <script src="scripts/weight-register.js?v=1.0.41"></script>
+  <script src="scripts/main.js?v=1.0.41"></script>
 </head>
 
 <body>
@@ -77,6 +78,7 @@
           <label for="visualizeBy">Visualize by:</label>
           <input type="radio" id="visualizeByLocationHistory" name="visualizeBy" value="locationHistory" checked> Location History
           <input type="radio" id="visualizeByExceptionHistory" name="visualizeBy" value="exceptionHistory"> Exception History
+          <input type="radio" id="visualizeByWeightHistory" name="visualizeBy" value="weightHistory"> Weight History
 
           <label for="exceptionTypes">Other rule(s):</label>
           <select id="exceptionTypes" class="checkmateFormEditField multi-select-native" multiple disabled>
@@ -141,6 +143,58 @@
             <small class="control-help" id="idleCostStatus"></small>
           </section>
 
+          <section class="rule-section" id="weightSection">
+            <h3>Weight</h3>
+            <label for="weightFallbackTonnes">Fallback payload limit (t):</label>
+            <div class="idle-cost-inputs">
+              <input type="number" id="weightFallbackTonnes" min="0" step="0.5" value="10">
+              <label for="weightWarnPct">Warn at %</label>
+              <input type="number" id="weightWarnPct" min="0" max="100" step="5" value="80">
+            </div>
+            <label class="exception-heat-toggle" for="weightOverOnly">
+              <input type="checkbox" id="weightOverOnly">
+              Only readings over the payload limit
+            </label>
+            <label class="exception-heat-toggle" for="topWeightOnly">
+              <input type="checkbox" id="topWeightOnly">
+              Only the top 5 overloads per vehicle
+            </label>
+            <small class="control-help" id="weightStatus"></small>
+          </section>
+
+          <section class="rule-section" id="liveSection">
+            <h3>Live monitor</h3>
+            <label class="exception-heat-toggle" for="liveMonitor">
+              <input type="checkbox" id="liveMonitor">
+              Live monitor (current positions and alerts)
+            </label>
+            <label for="liveInterval">Refresh every:</label>
+            <select id="liveInterval" class="checkmateFormEditField">
+              <option value="30">30 seconds</option>
+              <option value="60" selected>60 seconds</option>
+              <option value="120">2 minutes</option>
+              <option value="300">5 minutes</option>
+            </select>
+            <div class="idle-cost-inputs">
+              <label for="liveSpeedThreshold">Alert over km/h</label>
+              <input type="number" id="liveSpeedThreshold" min="0" step="1" value="100">
+            </div>
+            <label class="exception-heat-toggle" for="liveWeightAlerts">
+              <input type="checkbox" id="liveWeightAlerts" checked>
+              Alert on overweight vehicles
+            </label>
+            <label class="exception-heat-toggle" for="liveExceptionAlerts">
+              <input type="checkbox" id="liveExceptionAlerts" checked>
+              Alert on new exceptions for the selected rules
+            </label>
+            <label class="exception-heat-toggle" for="liveAlertsOnly">
+              <input type="checkbox" id="liveAlertsOnly">
+              Show alerting vehicles only
+            </label>
+            <ul id="liveAlerts" class="live-alerts"></ul>
+            <small class="control-help" id="liveStatus"></small>
+          </section>
+
           <label for="groupTypes">Group type(s):</label>
           <select id="groupTypes" class="checkmateFormEditField multi-select-native" multiple></select>
 
@@ -161,7 +215,9 @@
           <details class="map-instructions">
             <summary id="instructions-title">Instructions</summary>
             <ol>
-              <li>Choose to visualize by <i>location history</i> or <i>exception history</i>.</li>
+              <li>Choose to visualize by <i>location history</i>, <i>exception history</i> or <i>weight history</i>.</li>
+              <li>In <i>weight history</i>, the cargo weight recorded by each vehicle is mapped over the selected date range and compared with the axle scale register: over the GML payload is an overload, over the GVM payload is critical, and vehicles missing from the register use the <i>Fallback payload limit</i>. Each vehicle's five worst overloads carry a ranked badge.</li>
+              <li>Tick <i>Live monitor</i> to watch current vehicle positions on the same map, refreshed on the chosen interval. Alerts flash and are listed for vehicles over the speed threshold, over their payload limit, or with a new exception for the selected rules. MyGeotab has no push channel, so freshness is limited by the refresh interval and polling pauses while this tab is hidden.</li>
               <li>If visualizing by exception history, select one or more rules to search: speeding rules in the <i>Speeding</i> section, idling rules in the <i>Idling</i> section, and everything else in <i>Other rule(s)</i>.</li>
               <li>Optionally select a group type and vehicle group, then select the vehicle(s) to search.</li>
               <li>Optionally select zone types to narrow the zone list, then select zones to include only records inside them.</li>
@@ -190,6 +246,7 @@
           </div>
         </div>
     </div>
+    <section id="printReportTable"></section>
   </div>
 </body>
 

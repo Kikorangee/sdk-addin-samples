@@ -300,6 +300,68 @@ select.checkmateFormEditField {
     color: #08334d;
 }
 
+/* Weight history: each vehicle's worst loads against the axle scale register. */
+.metric-legend .top-weight-row { display: block; }
+.metric-legend .top-weight-row.is-only { font-weight: 700; }
+
+.event-metric-marker.is-top-weight span { box-shadow: 0 0 0 2px #d32f2f; }
+.event-metric-marker .top-weight-rank {
+    margin-left: 4px;
+    padding: 0 3px;
+    border-radius: 2px;
+    background: #d32f2f;
+    color: #ffffff;
+}
+
+.leaflet-popup-content .weight-over,
+.leaflet-popup-content .weight-critical { color: #b71c1c; font-weight: 700; }
+.leaflet-popup-content .weight-warn { color: #a06400; font-weight: 700; }
+.leaflet-popup-content .weight-under { color: #1b5e20; font-weight: 700; }
+
+.rule-section.is-inactive { opacity: 0.55; }
+
+/* Live monitor: alerting vehicles pulse so they read at a glance. */
+.live-vehicle.is-alerting { animation: live-alert-pulse 1.2s ease-in-out infinite; }
+
+@keyframes live-alert-pulse {
+    0%, 100% { stroke-opacity: 1; }
+    50% { stroke-opacity: 0.25; }
+}
+
+.live-vehicle-label span {
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(23, 32, 51, 0.85);
+    color: #ffffff;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.live-alerts {
+    margin: 6px 0 0;
+    padding: 0;
+    max-height: 150px;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.live-alert {
+    padding: 3px 5px;
+    margin-bottom: 3px;
+    border-left: 3px solid #d32f2f;
+    border-radius: 2px;
+    background: rgba(211, 47, 47, 0.14);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.live-alert-weight { border-left-color: #8e0000; background: rgba(142, 0, 0, 0.16); }
+.live-alert-exception { border-left-color: #f0a000; background: rgba(240, 160, 0, 0.16); }
+.live-alert small { display: block; opacity: 0.75; font-size: 10px; }
+.live-alert-empty { font-size: 11px; opacity: 0.7; }
+.live-alert-flag { display: inline-block; margin-top: 4px; color: #b71c1c; font-weight: 700; }
+#liveStatus.is-error { color: #ffbdbd; }
+
 .school-zone-legend > strong { display: flex; align-items: center; gap: 6px; }
 .school-zone-legend > strong i { width: 12px; height: 12px; flex: 0 0 auto; border: 1px solid #f2a900; background: rgba(242, 169, 0, 0.35); }
 .school-zone-legend span { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
@@ -493,7 +555,8 @@ select.checkmateFormEditField {
   background: #e9f5f7;
 }
 
-#printReportHeader {
+#printReportHeader,
+#printReportTable {
   display: none;
 }
 
@@ -503,14 +566,16 @@ select.checkmateFormEditField {
     margin: 8mm;
   }
 
+  /* The map fills the first page; the results table flows onto the pages after
+     it, so the document must scroll normally rather than be clipped. */
   html,
   body,
   #heatmap {
     width: 100% !important;
-    height: 100% !important;
+    height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   #disclaimer,
@@ -522,10 +587,6 @@ select.checkmateFormEditField {
 
   #printReportHeader {
     display: flex !important;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
     height: 22mm;
     box-sizing: border-box;
     align-items: flex-end;
@@ -538,15 +599,10 @@ select.checkmateFormEditField {
   }
 
   .cssGrid {
-    position: fixed !important;
-    top: 25mm;
-    right: 0;
-    bottom: 0;
-    left: 0;
     display: block !important;
-    width: auto !important;
-    height: auto !important;
-    margin: 0 !important;
+    width: 100% !important;
+    height: 160mm !important;
+    margin: 3mm 0 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
   }
@@ -589,6 +645,62 @@ select.checkmateFormEditField {
   #heatmap-map * {
     print-color-adjust: exact !important;
     -webkit-print-color-adjust: exact !important;
+  }
+
+  #printReportTable {
+    display: block !important;
+    break-before: page;
+    page-break-before: always;
+    color: #17324d;
+  }
+
+  #printReportTable h2 {
+    margin: 0 0 2mm;
+    font-size: 13pt;
+  }
+
+  #printReportTable h2 + table {
+    margin-bottom: 6mm;
+  }
+
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+  }
+
+  .print-table th,
+  .print-table td {
+    padding: 1mm 1.5mm;
+    border: 1px solid #9eb6c8;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .print-table thead th {
+    background: #e9f0f6;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  .print-table thead {
+    display: table-header-group;
+  }
+
+  .print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-summary-table {
+    width: auto;
+    min-width: 90mm;
+    font-size: 9pt;
+  }
+
+  .print-table-note {
+    margin: 3mm 0 0;
+    font-size: 8.5pt;
   }
 }
 
